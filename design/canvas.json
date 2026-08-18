@@ -1,0 +1,23 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "Dashboard", "x": 0, "y": 0, "w": 1440, "h": 1180 },
+    { "file": "Jugador.dc.html", "title": "Ficha de scouting", "x": 1580, "y": 0, "w": 1440, "h": 1660 }
+  ],
+  "annotations": [
+    {
+      "id": "datos-reales",
+      "x": 0,
+      "y": -150,
+      "w": 460,
+      "text": "Todos los datos son reales: 63 partidos del Grupo E-A 2025/2026 scrapeados de feb.es.\nEl mapa de tiro son las 67 coordenadas x/y auténticas de Ortega Ibáñez."
+    },
+    {
+      "id": "sistema-visual",
+      "x": 1580,
+      "y": -150,
+      "w": 460,
+      "text": "Tokens tomados de frontend/index.html: #0d1117 fondo, #161b22 tarjeta, #30363d borde, #e6e04c acento, Inter, radios 8/4px.\nAñadido --ink #e6edf3: el CSS actual usa --white sin definirla."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

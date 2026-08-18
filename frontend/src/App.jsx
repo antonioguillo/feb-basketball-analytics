@@ -1,44 +1,44 @@
-import React, { useState, useEffect } from 'react';
-import { Container, Header, Nav, Section, MetricGrid, Loading, Error } from './Components';
+import { useState, useCallback } from 'react';
+import Layout from './components/Layout.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import PlayerPage from './pages/Player.jsx';
+import { ErrorState } from './components/Primitives.jsx';
+import { useRoute, useNavigate, href } from './lib/router.js';
+import { DEFAULT_CONTEXT } from './api/client.js';
 
-function App() {
-  const [section, setSection] = useState('jugadores');
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+export default function App() {
+  const route = useRoute();
+  const navigate = useNavigate();
+  const [source, setSource] = useState(null);
 
-  const loadData = async (endpoint) => {
-    try {
-      setError(null);
-      const res = await fetch(`/api/v1${endpoint}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const result = await res.json();
-      setData(result);
-    } catch (e) {
-      setError(e.message);
-    }
-  };
+  const openPlayer = useCallback((slug) => navigate(`/jugador/${slug}`), [navigate]);
+  const handleSource = useCallback((value) => setSource(value), []);
 
-  useEffect(() => {
-    loadData('/jugadores/1/estadisticas?temporada=2024');
-  }, []);
+  let page;
+  let activeNav;
+
+  if (route.name === 'dashboard') {
+    activeNav = 'dashboard';
+    page = <Dashboard onNavigate={openPlayer} onSource={handleSource} />;
+  } else if (route.name === 'player') {
+    activeNav = 'players';
+    page = <PlayerPage slug={route.slug} meta={DEFAULT_CONTEXT} onSource={handleSource} />;
+  } else {
+    activeNav = null;
+    page = (
+      <ErrorState
+        title="Página no encontrada"
+        detail={`La ruta ${route.path} no existe.`}
+        onRetry={() => {
+          window.location.hash = href.dashboard().slice(1);
+        }}
+      />
+    );
+  }
 
   return (
-    <Container>
-      <Header />
-      <nav class="nav">
-        <a href="#" onClick={e => { e.preventDefault(); setSection('jugadores'); }}>Jugadores</a>
-        <a href="#" onClick={e => { e.preventDefault(); setSection('lineups'); }}>Quintetos</a>
-        <a href="#" onClick={e => { e.preventDefault(); setSection('estadisticas'); }}>Líderes</a>
-        <a href="#" onClick={e => { e.preventDefault(); setSection('partidos'); }}>Partidos</a>
-      </nav>
-
-      <Section>
-        {error && <div className="error">Error: {error}</div>}
-        {data && <MetricGrid data={data} />}
-        {!data && !error && <p className="loading">Cargando datos...</p>}
-      </Section>
-    </Container>
+    <Layout activeNav={activeNav} usingFixtures={source === 'fixtures'}>
+      {page}
+    </Layout>
   );
 }
-
-export default App;

@@ -1,0 +1,467 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; font-family: 'Inter', system-ui, sans-serif; background: #0d1117; color: #8b949e; }
+    a { color: #e6e04c; text-decoration: none; }
+    a:hover { color: #f2d049; }
+    table { border-collapse: collapse; }
+    th { font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; padding-bottom: 10px; }
+    td { font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; background: #0d1117; padding-bottom: 48px">
+
+  <div style="background: #21262d; padding: 20px 0; border-bottom: 1px solid #30363d">
+    <div style="max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center">
+      <div style="display: flex; align-items: center; gap: 10px">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#e6e04c" stroke-width="1.6">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 3v18M3 12h18M5.6 5.6c3.6 3.6 3.6 9.2 0 12.8M18.4 5.6c-3.6 3.6-3.6 9.2 0 12.8"></path>
+        </svg>
+        <span style="font-size: 1.5rem; font-weight: 600; color: #e6e04c">FEB Basketball Scouting</span>
+      </div>
+      <nav style="display: flex; gap: 20px; align-items: center; font-size: 0.9375rem">
+        <a href="#" style="color: #8b949e">Dashboard</a>
+        <a href="#" style="color: #e6edf3; font-weight: 500; border-bottom: 2px solid #e6e04c; padding-bottom: 3px">Jugadores</a>
+        <a href="#" style="color: #8b949e">Equipos</a>
+        <a href="#" style="color: #8b949e">Partidos</a>
+      </nav>
+    </div>
+  </div>
+
+  <div style="max-width: 1200px; margin: 0 auto; padding: 24px 20px 0">
+
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; margin-bottom: 20px">
+      <a href="#" style="color: #8b949e">Jugadores</a>
+      <span style="color: #484f58">/</span>
+      <span style="color: #e6edf3">Ortega Iba&ntilde;ez, Alejandro</span>
+    </div>
+
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px; margin-bottom: 24px">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 32px">
+        <div style="display: flex; align-items: center; gap: 20px">
+          <div style="width: 68px; height: 68px; border-radius: 8px; background: #21262d; border: 1px solid #30363d; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+            <span style="font-size: 1.75rem; font-weight: 700; color: #e6e04c; font-variant-numeric: tabular-nums">3</span>
+          </div>
+          <div>
+            <h1 style="margin: 0 0 6px; font-size: 1.75rem; font-weight: 600; color: #e6edf3; letter-spacing: -0.01em">Alejandro Ortega Iba&ntilde;ez</h1>
+            <div style="display: flex; align-items: center; gap: 10px; font-size: 0.875rem; color: #8b949e">
+              <span style="color: #e6edf3">The Fitzgerald El Pilar</span>
+              <span style="color: #484f58">&middot;</span>
+              <span>Tercera FEB, Grupo E-A</span>
+              <span style="color: #484f58">&middot;</span>
+              <span>2025/2026</span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-shrink: 0">
+          <div style="background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 7px 12px; font-size: 0.8125rem; color: #e6edf3">9 partidos</div>
+          <div style="background: #e6e04c; border-radius: 4px; padding: 7px 14px; font-size: 0.8125rem; font-weight: 500; color: #0d1117">Comparar</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px">
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Valoraci&oacute;n</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6e04c; line-height: 1; font-variant-numeric: tabular-nums">23.6</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">1&ordm; del grupo</div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Puntos</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">13.8</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">16.5 por 36 min</div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Rebotes</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">8.3</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">m&aacute;ximo 17</div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Asistencias</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">3.7</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">2.3 p&eacute;rdidas</div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Minutos</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">30.0</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">de 40 posibles</div>
+      </div>
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px">
+        <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: #8b949e; margin-bottom: 8px">Plus / minus</div>
+        <div style="font-size: 2rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">+6.9</div>
+        <div style="font-size: 0.75rem; color: #8b949e; margin-top: 6px">por partido</div>
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin-bottom: 24px">
+
+      <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px">
+        <h2 style="margin: 0 0 4px; font-size: 1.25rem; font-weight: 600; color: #e6edf3">Mapa de tiro</h2>
+        <p style="margin: 0 0 16px; font-size: 0.8125rem; color: #8b949e">67 tiros de campo localizados &middot; 9 partidos</p>
+
+        <div style="display: flex; gap: 18px; margin-bottom: 16px; font-size: 0.8125rem">
+          <div style="display: flex; align-items: center; gap: 7px">
+            <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" fill="#e6e04c"></circle></svg>
+            <span style="color: #e6edf3">Anotado 38</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 7px">
+            <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="5" fill="none" stroke="#6e7681" stroke-width="2"></circle></svg>
+            <span style="color: #8b949e">Fallado 29</span>
+          </div>
+        </div>
+
+        <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 10px">
+          <svg viewBox="0 0 1500 1400" style="width: 100%; height: auto; display: block">
+            <rect x="0" y="0" width="1500" height="1400" fill="#0d1117"></rect>
+            <g fill="none" stroke="#30363d" stroke-width="6">
+              <rect x="3" y="3" width="1494" height="1394"></rect>
+              <rect x="505" y="820" width="490" height="577"></rect>
+              <circle cx="750" cy="820" r="180"></circle>
+              <path d="M 90 1397 L 90 1260 A 660 660 0 0 1 1410 1260 L 1410 1397"></path>
+              <path d="M 625 1330 L 875 1330"></path>
+              <circle cx="750" cy="1260" r="125" stroke="#21262d" stroke-dasharray="14 12"></circle>
+            </g>
+            <circle cx="750" cy="1283" r="34" fill="none" stroke="#484f58" stroke-width="7"></circle>
+            <circle cx="688.5" cy="431.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="784.5" cy="1167.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1023.0" cy="540.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="583.5" cy="1234.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="841.5" cy="1131.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="609.0" cy="1122.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1159.5" cy="537.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1239.0" cy="649.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="466.5" cy="464.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="394.5" cy="445.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="892.5" cy="1226.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="466.5" cy="403.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="720.0" cy="506.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="513.0" cy="526.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="513.0" cy="526.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="586.5" cy="1167.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="642.0" cy="1164.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1291.5" cy="725.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="325.5" cy="627.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="499.5" cy="484.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="589.5" cy="971.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="726.0" cy="1083.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1053.0" cy="616.0" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="661.5" cy="1215.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="616.5" cy="1178.8" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="438.0" cy="582.4" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1074.0" cy="1167.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="852.0" cy="417.2" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="1315.5" cy="761.6" r="16" fill="none" stroke="#6e7681" stroke-width="5"/>
+            <circle cx="556.5" cy="1243.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="720.0" cy="1036.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="277.5" cy="574.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="816.0" cy="1262.8" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="813.0" cy="1276.8" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="832.5" cy="1271.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="658.5" cy="1282.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="414.0" cy="518.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="607.5" cy="1145.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1062.0" cy="1246.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="783.0" cy="358.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="643.5" cy="1170.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="922.5" cy="814.8" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="949.5" cy="764.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="900.0" cy="1218.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1227.0" cy="694.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="492.0" cy="481.6" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="625.5" cy="1268.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="843.0" cy="1330.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1171.5" cy="686.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="253.5" cy="1008.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1099.5" cy="761.6" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="703.5" cy="453.6" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="394.5" cy="568.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1261.5" cy="694.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="256.5" cy="686.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1162.5" cy="602.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="843.0" cy="1271.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="655.5" cy="1243.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="834.0" cy="1268.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="658.5" cy="1254.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="627.0" cy="1254.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="676.5" cy="1276.8" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1407.0" cy="1170.4" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="619.5" cy="1106.0" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="1024.5" cy="509.6" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="871.5" cy="1167.6" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+            <circle cx="841.5" cy="1215.2" r="18" fill="#e6e04c" stroke="#161b22" stroke-width="4"/>
+          </svg>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 24px">
+
+        <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px">
+          <h2 style="margin: 0 0 4px; font-size: 1.25rem; font-weight: 600; color: #e6edf3">Acierto por zona</h2>
+          <p style="margin: 0 0 20px; font-size: 0.8125rem; color: #8b949e">Zona calculada desde las coordenadas, no desde el acta</p>
+
+          <div style="display: flex; flex-direction: column; gap: 18px">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px">
+                <span style="color: #e6edf3; font-size: 0.875rem; font-weight: 500">Cerca del aro</span>
+                <span style="font-size: 0.8125rem; color: #8b949e"><span style="color: #e6edf3; font-weight: 600; font-size: 1rem">87%</span> &middot; 13/15</span>
+              </div>
+              <div style="height: 10px; background: #21262d; border-radius: 0 5px 5px 0">
+                <div style="width: 87%; height: 10px; background: #e6e04c; border-radius: 0 5px 5px 0"></div>
+              </div>
+            </div>
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px">
+                <span style="color: #e6edf3; font-size: 0.875rem; font-weight: 500">Media distancia</span>
+                <span style="font-size: 0.8125rem; color: #8b949e"><span style="color: #e6edf3; font-weight: 600; font-size: 1rem">55%</span> &middot; 12/22</span>
+              </div>
+              <div style="height: 10px; background: #21262d; border-radius: 0 5px 5px 0">
+                <div style="width: 55%; height: 10px; background: #e6e04c; border-radius: 0 5px 5px 0"></div>
+              </div>
+            </div>
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px">
+                <span style="color: #e6edf3; font-size: 0.875rem; font-weight: 500">Triple</span>
+                <span style="font-size: 0.8125rem; color: #8b949e"><span style="color: #e6edf3; font-weight: 600; font-size: 1rem">43%</span> &middot; 13/30</span>
+              </div>
+              <div style="height: 10px; background: #21262d; border-radius: 0 5px 5px 0">
+                <div style="width: 43%; height: 10px; background: #e6e04c; border-radius: 0 5px 5px 0"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px; flex-grow: 1">
+          <h2 style="margin: 0 0 20px; font-size: 1.25rem; font-weight: 600; color: #e6edf3">Eficiencia en el tiro</h2>
+
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 22px">
+            <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 14px">
+              <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 7px">Tiros de 2</div>
+              <div style="font-size: 1.5rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">64.1%</div>
+              <div style="font-size: 0.75rem; color: #8b949e; margin-top: 5px">25/39</div>
+            </div>
+            <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 14px">
+              <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 7px">Triples</div>
+              <div style="font-size: 1.5rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">46.4%</div>
+              <div style="font-size: 0.75rem; color: #8b949e; margin-top: 5px">13/28</div>
+            </div>
+            <div style="background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 14px">
+              <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 7px">Tiros libres</div>
+              <div style="font-size: 1.5rem; font-weight: 600; color: #e6edf3; line-height: 1; font-variant-numeric: tabular-nums">76.1%</div>
+              <div style="font-size: 0.75rem; color: #8b949e; margin-top: 5px">35/46</div>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 14px; border-top: 1px solid #21262d; padding-top: 20px">
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <div>
+                <div style="color: #e6edf3; font-size: 0.875rem; font-weight: 500">eFG%</div>
+                <div style="font-size: 0.75rem; color: #8b949e; margin-top: 2px">tiro de campo ponderando el triple</div>
+              </div>
+              <span style="font-size: 1.25rem; font-weight: 600; color: #e6edf3; font-variant-numeric: tabular-nums">66.4%</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center">
+              <div>
+                <div style="color: #e6edf3; font-size: 0.875rem; font-weight: 500">TS%</div>
+                <div style="font-size: 0.75rem; color: #8b949e; margin-top: 2px">acierto real, incluidos tiros libres</div>
+              </div>
+              <span style="font-size: 1.25rem; font-weight: 600; color: #e6e04c; font-variant-numeric: tabular-nums">71.1%</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 24px">
+      <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px">
+        <h2 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #e6edf3">Partido a partido</h2>
+        <a href="#" style="font-size: 0.8125rem">Exportar CSV &rarr;</a>
+      </div>
+
+      <table style="width: 100%; font-size: 0.875rem">
+        <thead>
+          <tr style="border-bottom: 1px solid #30363d">
+            <th style="text-align: left; width: 96px">Fecha</th>
+            <th style="text-align: left">Rival</th>
+            <th style="text-align: center; width: 60px">L/V</th>
+            <th style="text-align: right; width: 84px">Resultado</th>
+            <th style="text-align: right; width: 56px">MIN</th>
+            <th style="text-align: right; width: 56px">PTS</th>
+            <th style="text-align: right; width: 56px">REB</th>
+            <th style="text-align: right; width: 56px">AST</th>
+            <th style="text-align: left; padding-left: 24px; width: 168px">VAL</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">04/10/2025</td>
+            <td style="color: #e6edf3">Socage Jovens L&rsquo;Eliana</td>
+            <td style="text-align: center; color: #8b949e">V</td>
+            <td style="text-align: right; color: #8b949e">77-78</td>
+            <td style="text-align: right; color: #e6edf3">26</td>
+            <td style="text-align: right; color: #e6edf3">10</td>
+            <td style="text-align: right; color: #e6edf3">3</td>
+            <td style="text-align: right; color: #e6edf3">4</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 50%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">17</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">12/10/2025</td>
+            <td style="color: #e6edf3">C.B. Puerto Sagunto</td>
+            <td style="text-align: center; color: #8b949e">L</td>
+            <td style="text-align: right; color: #8b949e">82-77</td>
+            <td style="text-align: right; color: #e6edf3">29</td>
+            <td style="text-align: right; color: #e6edf3">14</td>
+            <td style="text-align: right; color: #e6edf3">10</td>
+            <td style="text-align: right; color: #e6edf3">5</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 82%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">28</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">18/10/2025</td>
+            <td style="color: #e6edf3">Halal Food Quality Uix&oacute; B&agrave;squet</td>
+            <td style="text-align: center; color: #8b949e">V</td>
+            <td style="text-align: right; color: #8b949e">81-68</td>
+            <td style="text-align: right; color: #e6edf3">36</td>
+            <td style="text-align: right; color: #e6edf3">14</td>
+            <td style="text-align: right; color: #e6edf3">10</td>
+            <td style="text-align: right; color: #e6edf3">1</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 65%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">22</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">26/10/2025</td>
+            <td style="color: #e6edf3">CB Tabernes Blanques</td>
+            <td style="text-align: center; color: #8b949e">L</td>
+            <td style="text-align: right; color: #8b949e">76-65</td>
+            <td style="text-align: right; color: #e6edf3">30</td>
+            <td style="text-align: right; color: #e6edf3">13</td>
+            <td style="text-align: right; color: #e6edf3">9</td>
+            <td style="text-align: right; color: #e6edf3">2</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 62%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">21</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">01/11/2025</td>
+            <td style="color: #e6edf3">CB Jovens Alm&agrave;ssera</td>
+            <td style="text-align: center; color: #8b949e">V</td>
+            <td style="text-align: right; color: #8b949e">86-88</td>
+            <td style="text-align: right; color: #e6edf3">30</td>
+            <td style="text-align: right; color: #e6edf3">13</td>
+            <td style="text-align: right; color: #e6e04c; font-weight: 600">17</td>
+            <td style="text-align: right; color: #e6edf3">3</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 82%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">28</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">09/11/2025</td>
+            <td style="color: #e6edf3">BC Pe&ntilde;&iacute;scola</td>
+            <td style="text-align: center; color: #8b949e">L</td>
+            <td style="text-align: right; color: #8b949e">101-92</td>
+            <td style="text-align: right; color: #e6edf3">23</td>
+            <td style="text-align: right; color: #e6edf3">11</td>
+            <td style="text-align: right; color: #e6edf3">5</td>
+            <td style="text-align: right; color: #e6edf3">6</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 44%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">15</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d">
+            <td style="padding: 10px 0; color: #8b949e">15/11/2025</td>
+            <td style="color: #e6edf3">Bauhaus Godella</td>
+            <td style="text-align: center; color: #8b949e">V</td>
+            <td style="text-align: right; color: #8b949e">79-97</td>
+            <td style="text-align: right; color: #e6edf3">31</td>
+            <td style="text-align: right; color: #e6edf3">11</td>
+            <td style="text-align: right; color: #e6edf3">7</td>
+            <td style="text-align: right; color: #e6e04c; font-weight: 600">8</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 74%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">25</span>
+              </div>
+            </td>
+          </tr>
+          <tr style="border-bottom: 1px solid #21262d; background: #1b2029">
+            <td style="padding: 10px 0; color: #8b949e">23/11/2025</td>
+            <td style="color: #e6edf3">Fundaci&oacute; Caixa Rural Vila-real</td>
+            <td style="text-align: center; color: #8b949e">L</td>
+            <td style="text-align: right; color: #8b949e">85-77</td>
+            <td style="text-align: right; color: #e6edf3">35</td>
+            <td style="text-align: right; color: #e6e04c; font-weight: 600">23</td>
+            <td style="text-align: right; color: #e6edf3">6</td>
+            <td style="text-align: right; color: #e6edf3">3</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 100%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">34</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 0; color: #8b949e">30/11/2025</td>
+            <td style="color: #e6edf3">Amics Castell&oacute; B</td>
+            <td style="text-align: center; color: #8b949e">V</td>
+            <td style="text-align: right; color: #8b949e">69-99</td>
+            <td style="text-align: right; color: #e6edf3">29</td>
+            <td style="text-align: right; color: #e6edf3">15</td>
+            <td style="text-align: right; color: #e6edf3">8</td>
+            <td style="text-align: right; color: #e6edf3">1</td>
+            <td style="padding-left: 24px">
+              <div style="display: flex; align-items: center; gap: 10px">
+                <div style="flex-grow: 1; height: 8px; background: #21262d; border-radius: 0 4px 4px 0"><div style="width: 65%; height: 8px; background: #e6e04c; border-radius: 0 4px 4px 0"></div></div>
+                <span style="color: #e6edf3; font-weight: 600; width: 22px; text-align: right">22</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":1660}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -249,10 +249,57 @@ feb-basketball-analytics/
 └── data/processed/           # Parquets locales (cache de scraping)
 ```
 
+## Frontend (React + Vite)
+
+Aplicación de scouting con dos pantallas: **Dashboard** del grupo y **ficha de
+jugador** con mapa de tiro.
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # dist/
+npm run check    # render de los componentes con datos reales, sin navegador
+```
+
+`npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
+`VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
+ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
+2025/2026 — y lo anuncia con un aviso permanente, de modo que nunca se
+presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
+import dinámico: no entran en el bundle inicial.
+
+### Contrato con el backend
+
+El frontend espera dos endpoints (la forma exacta es la de `fixtures.json`):
+
+| Endpoint | Devuelve |
+|---|---|
+| `GET /api/dashboard?season=&group=` | `{ meta, summary, leaders[], recentGames[] }` |
+| `GET /api/players/<slug>` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
+
+> `api.py` **todavía no los sirve**: sus consultas usan columnas que no existen
+> en el esquema real (`player_id`, `equipo_id`, `minutos_played`), y las tablas
+> `feb.*` guardan una fila por jugador y partido, sin las agregaciones por
+> temporada que necesitan estas pantallas.
+
+### Sistema visual
+
+Tokens en `src/styles.css`, heredados del `index.html` original: `#0d1117`
+fondo, `#161b22` tarjeta, `#30363d` borde, `#e6e04c` acento, Inter, radios
+8/4 px, contenedor 1200 px. Se añade `--ink: #e6edf3` porque el CSS anterior
+usaba `var(--white)` sin definirla y los títulos quedaban en gris apagado.
+
+La geometría del mapa de tiro vive en `src/lib/court.js` y usa las mismas
+constantes que `jobs/spark_gold.py`; si se cambian allí, hay que cambiarlas aquí.
+
+Los diseños de origen están en `design/` (`*.dc.html` + `canvas.json`).
+
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v
+python -m unittest discover -s tests -v   # pipeline y scraper
+cd frontend && npm run check              # componentes de la interfaz
 ```
 
 No requieren red ni Spark: simulan las respuestas del WebForm de la FEB para

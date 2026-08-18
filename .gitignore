@@ -34,3 +34,11 @@ secrets/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Node / frontend
+node_modules/
+frontend/dist/
+frontend/dist-check/
+
+# Lienzo de diseño ensamblado (se regenera desde design/*.dc.html)
+design/feb-scouting-interface.html

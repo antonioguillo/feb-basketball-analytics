@@ -1,11 +1,13 @@
 {
-  "name": "frontend",
+  "name": "feb-scouting-frontend",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "vite build --ssr ssr-check.jsx --outDir dist-check --logLevel error && node dist-check/ssr-check.js"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -14,6 +16,7 @@
   "devDependencies": {
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.1.0",
     "vite": "^8.2.1"
   }
 }
