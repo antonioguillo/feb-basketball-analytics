@@ -43,9 +43,11 @@ def load(table):
     total = _query(f"SELECT count() FROM {src}").strip()
 
     if table == "jugadores":
-        cols = ("game_id, year, game_date, jersey, player_name, minutes, points, "
+        cols = ("game_id, year, game_date, jersey, player_name, team, is_home, "
+                "minutes, points, "
                 "t2m, t2a, t3m, t3a, ftm, fta, reb, ast, stl, blk, to, pf, plus_minus, val")
         sel = (f"toUInt32(game_id), toUInt16(year), game_date, toUInt8(jersey), player_name, "
+               f"team, toUInt8(is_home), "
                f"toFloat32(minutes), toUInt16(points), toUInt8(t2m), toUInt8(t2a), "
                f"toUInt8(t3m), toUInt8(t3a), toUInt8(ftm), toUInt8(fta), toUInt8(reb), "
                f"toUInt8(ast), toUInt8(stl), toUInt8(blk), toUInt8(to), toUInt8(pf), "
@@ -56,9 +58,11 @@ def load(table):
                f"ifNull(toUInt8(team), 0), action, "
                f"ifNull(toUInt16(scoreA), 0), ifNull(toUInt16(scoreB), 0)")
     elif table == "tiros":
-        cols = ("game_id, year, quarter, time, player, team, made, x, y")
+        cols = ("game_id, year, quarter, time, player, team, made, x, y, "
+                "shot_distance_m, zone, is_three, shot_points")
         sel = (f"toUInt32(game_id), toUInt16(year), toUInt8(quarter), time, "
-               f"toUInt8(player), toUInt8(team), toUInt8(made), toFloat64(x), toFloat64(y)")
+               f"toUInt8(player), toUInt8(team), toUInt8(made), toFloat64(x), toFloat64(y), "
+               f"toFloat32(shot_distance_m), zone, toUInt8(is_three), toUInt8(shot_points)")
     elif table == "equipos_partido":
         cols = ("game_id, year, team_id, team_name, points, t2m, t2a, t3m, t3a, ftm, fta, "
                 "off_reb, def_reb, tot_reb, ast, stl, to, blk, pf")
@@ -68,9 +72,10 @@ def load(table):
                f"toUInt8(tot_reb), toUInt8(ast), toUInt8(stl), toUInt8(to), toUInt8(blk), "
                f"toUInt8(pf)")
     elif table == "partidos":
-        cols = ("game_id, year, date, home_score, away_score, total_points, winner")
-        sel = (f"toUInt32(game_id), toUInt16(year), date, toUInt16(home_score), "
-               f"toUInt16(away_score), toUInt16(total_points), winner")
+        cols = ("game_id, year, date, game_date, home_team, away_team, home_score, "
+                "away_score, total_points, winner")
+        sel = (f"toUInt32(game_id), toUInt16(year), date, game_date, home_team, away_team, "
+               f"toUInt16(home_score), toUInt16(away_score), toUInt16(total_points), winner")
     else:
         raise ValueError(f"Tabla desconocida: {table}")
 

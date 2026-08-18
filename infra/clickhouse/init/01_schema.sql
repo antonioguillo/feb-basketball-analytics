@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS feb.jugadores
     game_date     Date,
     jersey        UInt8,
     player_name   String,
+    team          String,
+    is_home       UInt8,
     minutes       Float32,
     points        UInt16,
     t2m           UInt8,
@@ -56,7 +58,11 @@ CREATE TABLE IF NOT EXISTS feb.tiros
     team      UInt8,
     made      UInt8,
     x         Float64,
-    y         Float64
+    y         Float64,
+    shot_distance_m Float32,
+    zone      String,
+    is_three  UInt8,
+    shot_points UInt8
 ) ENGINE = MergeTree()
 PARTITION BY year
 ORDER BY (game_id, quarter);
@@ -93,6 +99,9 @@ CREATE TABLE IF NOT EXISTS feb.partidos
     game_id      UInt32,
     year         UInt16,
     date         String,
+    game_date    Date,
+    home_team    String,
+    away_team    String,
     home_score   UInt16,
     away_score   UInt16,
     total_points UInt16,
@@ -100,3 +109,14 @@ CREATE TABLE IF NOT EXISTS feb.partidos
 ) ENGINE = MergeTree()
 PARTITION BY year
 ORDER BY game_id;
+-- Migracion de instalaciones anteriores: CREATE TABLE IF NOT EXISTS no anade
+-- columnas nuevas a una tabla que ya existe.
+ALTER TABLE feb.jugadores ADD COLUMN IF NOT EXISTS team String AFTER player_name;
+ALTER TABLE feb.jugadores ADD COLUMN IF NOT EXISTS is_home UInt8 AFTER team;
+ALTER TABLE feb.tiros     ADD COLUMN IF NOT EXISTS shot_distance_m Float32 AFTER y;
+ALTER TABLE feb.tiros     ADD COLUMN IF NOT EXISTS zone String AFTER shot_distance_m;
+ALTER TABLE feb.tiros     ADD COLUMN IF NOT EXISTS is_three UInt8 AFTER zone;
+ALTER TABLE feb.tiros     ADD COLUMN IF NOT EXISTS shot_points UInt8 AFTER is_three;
+ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS game_date Date AFTER date;
+ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS home_team String AFTER game_date;
+ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS away_team String AFTER home_team;

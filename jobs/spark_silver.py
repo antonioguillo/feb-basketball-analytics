@@ -6,6 +6,7 @@ Limpieza y normalización de las tablas bronze:
   - Enriquecimiento (equipos local/visitante, puntos correctos)
 Salida en s3a://silver/ (Delta).
 """
+import os
 import sys
 from pyspark.sql import SparkSession, functions as F
 
@@ -13,21 +14,31 @@ MINIO_ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "http://minio:9000"
 ACCESS_KEY = sys.argv[2] if len(sys.argv) > 2 else "minioadmin"
 SECRET_KEY = sys.argv[3] if len(sys.argv) > 3 else "minioadmin"
 
-spark = SparkSession.builder \
-    .appName("FEB Silver") \
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT) \
-    .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY) \
-    .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY) \
-    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
-    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
-    .config("spark.sql.shuffle.partitions", "8") \
-    .getOrCreate()
+# Por defecto el data lake vive en MinIO y las tablas son Delta. Los tests
+# redirigen ambas cosas a disco local con parquet para ejecutar el job sin
+# Docker; ver tests/test_pipeline_local.py.
+LAKE_ROOT = os.environ.get("FEB_LAKE_ROOT", "s3a://")
+TABLE_FORMAT = os.environ.get("FEB_TABLE_FORMAT", "delta")
 
-BRONZE = "s3a://bronze/"
-SILVER = "s3a://silver/"
+_builder = (SparkSession.builder.appName("FEB Silver")
+            .config("spark.sql.shuffle.partitions", "8"))
+if TABLE_FORMAT == "delta":
+    _builder = (_builder
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog",
+                        "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+if LAKE_ROOT.startswith("s3a://"):
+    _builder = (_builder
+                .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+                .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY)
+                .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY)
+                .config("spark.hadoop.fs.s3a.path.style.access", "true")
+                .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false"))
+spark = _builder.getOrCreate()
+
+BRONZE = LAKE_ROOT + "bronze/"
+SILVER = LAKE_ROOT + "silver/"
 
 # Columnas enteras tal y como las produce bronze (ver jobs/spark_bronze.py).
 INT_COLS = ["jersey", "points", "t2m", "t2a", "t3m", "t3a", "ftm", "fta", "reb",
@@ -54,7 +65,7 @@ def _per_minute(df, name, numerator, per=36):
 
 
 def clean_players():
-    df = spark.read.format("delta").load(BRONZE + "players")
+    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "players")
 
     # bronze usa nombres heredados del scraper; silver fija el contrato que
     # consumen gold, el export a staging y el esquema de ClickHouse.
@@ -101,39 +112,56 @@ def clean_players():
             .withColumn("is_double_double", double_count >= 2)
             .withColumn("is_triple_double", double_count >= 3))
 
+    for col in ("team", "home_team", "away_team"):
+        df = df.withColumn(col, F.trim(F.col(col)))
+
     df = df.filter(F.col("player_name").isNotNull()).dropDuplicates(
         ["game_id", "player_name", "jersey"])
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(SILVER + "players")
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "players")
     print(f"silver_players: {df.count()}")
 
 
+def clean_games():
+    """Cabecera del partido: fecha tipada y nombres de equipo normalizados."""
+    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "games")
+    df = _to_int(df, ["home_score", "away_score"])
+    df = df.withColumn("game_date", F.to_date(F.col("date"), "dd/MM/yyyy"))
+    for col in ("home_team", "away_team", "venue"):
+        df = df.withColumn(col, F.trim(F.col(col)))
+    df = df.filter(F.col("home_team").isNotNull() & F.col("away_team").isNotNull())
+    df = df.dropDuplicates(["game_id"])
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "games")
+    print(f"silver_games: {df.count()}")
+
+
 def clean_playbyplay():
-    df = spark.read.format("delta").load(BRONZE + "playbyplay")
+    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "playbyplay")
     df = _to_int(df, ["num", "quarter", "team", "scoreA", "scoreB"])
     df = df.filter(F.col("text").isNotNull()).dropDuplicates(["game_id", "num"])
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(SILVER + "playbyplay")
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "playbyplay")
     print(f"silver_playbyplay: {df.count()}")
 
 
 def clean_shots():
-    df = spark.read.format("delta").load(BRONZE + "shots")
+    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "shots")
     df = _to_int(df, ["quarter", "player", "team", "made"])
     df = _to_float(df, ["x", "y"])
     df = df.filter(F.col("x").isNotNull()).dropDuplicates(["game_id", "quarter", "time", "player", "x", "y"])
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(SILVER + "shots")
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "shots")
     print(f"silver_shots: {df.count()}")
 
 
 def clean_teamstats():
-    df = spark.read.format("delta").load(BRONZE + "teamstats")
+    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "teamstats")
     df = _to_int(df, ["points", "t2m", "t2a", "t3m", "t3a", "ftm", "fta",
                       "off_reb", "def_reb", "tot_reb", "ast", "stl", "to", "blk", "pf"])
     df = df.filter(F.col("team_name").isNotNull()).dropDuplicates(["game_id", "team_id"])
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(SILVER + "teamstats")
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "teamstats")
     print(f"silver_teamstats: {df.count()}")
 
 
 if __name__ == "__main__":
+    clean_games()
     clean_players()
     clean_playbyplay()
     clean_shots()

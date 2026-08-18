@@ -158,7 +158,12 @@ raw/competition=<comp>/year=<año>/game_id=<id>.json
 Contiene: ficha del partido, `players` (locales y visitantes), `play_by_play`, `shots` (coordenadas x/y), `team_stats`.
 
 ### bronze (MinIO `bronze/`, Delta)
-- `bronze_players`: game_id, date, is_home, jersey, player_name, minutes, points, t2m/t2a, t3m/t3a, ftm/fta, reb, ast, stl, blk, to, pf, plus_minus, val
+- `bronze_games`: game_id, date, venue, home_team, away_team, home_score, away_score, group
+- `bronze_players`: game_id, date, is_home, **team**, home_team, away_team, jersey, player_name, minutes, points, t2m/t2a, t3m/t3a, ftm/fta, reb, ast, stl, blk, to, pf, plus_minus, val
+
+> El acta solo dice si un jugador es local o visitante; el nombre del equipo
+> vive en la cabecera del JSON. Sin arrastrarlo hasta aquí, ninguna capa
+> posterior puede decir con qué equipo juega nadie.
 - `bronze_playbyplay`: game_id, num, quarter, time, text, team, action, scoreA, scoreB
 - `bronze_shots`: game_id, quarter, time, player, team, made, x, y
 - `bronze_teamstats`: game_id, team_id, team_name, points, t2m…pf
@@ -187,6 +192,15 @@ de 3 del box score de 6 partidos (836 tiros): 0,8 % de discrepancia.
 ## ClickHouse (consumo SQL)
 
 Tablas en BD `feb`: `jugadores`, `playbyplay`, `tiros`, `equipos_partido`, `partidos`.
+
+`jugadores` lleva `team` e `is_home`; `partidos` lleva `home_team`, `away_team`
+y `game_date` (Date, para ordenar); `tiros` llega desde `gold/fact_tiros` con
+`zone`, `shot_distance_m`, `is_three` y `shot_points` ya calculados, de modo que
+la geometría de la cancha se define en un solo sitio.
+
+Al actualizar un despliegue anterior, `01_schema.sql` incluye los
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`: `CREATE TABLE IF NOT EXISTS` no
+añade columnas a una tabla que ya existe.
 
 La carga se hace en dos pasos:
 1. `jobs/export_clickhouse.py` materializa el estado lógico de las tablas Delta
@@ -269,19 +283,30 @@ ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
 presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
 import dinámico: no entran en el bundle inicial.
 
-### Contrato con el backend
+## API REST (`api.py`)
 
-El frontend espera dos endpoints (la forma exacta es la de `fixtures.json`):
+```bash
+./run_pipeline.sh api          # o: uvicorn api:app --reload --port 8000
+```
+
+Documentación interactiva en http://localhost:8000/docs.
 
 | Endpoint | Devuelve |
 |---|---|
+| `GET /api/health` | estado de la conexión con ClickHouse |
 | `GET /api/dashboard?season=&group=` | `{ meta, summary, leaders[], recentGames[] }` |
 | `GET /api/players/<slug>` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
 
-> `api.py` **todavía no los sirve**: sus consultas usan columnas que no existen
-> en el esquema real (`player_id`, `equipo_id`, `minutos_played`), y las tablas
-> `feb.*` guardan una fila por jugador y partido, sin las agregaciones por
-> temporada que necesitan estas pantallas.
+Configuración por entorno: `CH_URL` (por defecto `http://localhost:8123`),
+`CH_USER`, `CH_PASSWORD`.
+
+**Identificador de jugador**: las tablas `feb.*` no tienen id de jugador — el
+acta de la FEB solo publica el nombre. El slug se deriva del nombre con
+`src/naming.py:player_slug`, que es la definición canónica: cualquier cosa que
+genere o resuelva URLs de jugador tiene que usar esa misma función.
+
+Los valores viajan siempre como parámetros de ClickHouse (`{nombre:Tipo}`),
+nunca interpolados en el SQL.
 
 ### Sistema visual
 
@@ -298,9 +323,19 @@ Los diseños de origen están en `design/` (`*.dc.html` + `canvas.json`).
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v   # pipeline y scraper
+python -m unittest discover -s tests -v   # scraper, pipeline y contrato de la API
 cd frontend && npm run check              # componentes de la interfaz
 ```
+
+| Fichero | Qué cubre |
+|---|---|
+| `tests/test_scraper_parsing.py` | el recorrido de jornadas del WebForm, sin red |
+| `tests/test_pipeline_local.py` | ejecuta bronze → silver → gold **de verdad** sobre dos partidos reales en disco local, y comprueba que el marcador reconstruido coincide con el acta |
+| `tests/test_api_contract.py` | que la API devuelve exactamente las claves que consume el frontend, con un ClickHouse simulado |
+
+> `test_pipeline_local.py` necesita `pyspark` y una JVM. En Windows se salta
+> solo: Hadoop no puede usar el sistema de ficheros local sin `winutils.exe`.
+> Ejecútalo en WSL o Linux para que corra entero.
 
 No requieren red ni Spark: simulan las respuestas del WebForm de la FEB para
 comprobar que se encadenan los postbacks de grupo y jornada.

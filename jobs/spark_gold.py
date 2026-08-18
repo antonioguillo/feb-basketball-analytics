@@ -9,6 +9,7 @@ Construye el modelo dimensional de consumo a partir de silver:
 
 Uso: spark-submit spark_gold.py [minio_endpoint] [access_key] [secret_key]
 """
+import os
 import sys
 from pyspark.sql import SparkSession, functions as F
 
@@ -16,21 +17,31 @@ MINIO_ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "http://minio:9000"
 ACCESS_KEY = sys.argv[2] if len(sys.argv) > 2 else "minioadmin"
 SECRET_KEY = sys.argv[3] if len(sys.argv) > 3 else "minioadmin"
 
-spark = SparkSession.builder \
-    .appName("FEB Gold") \
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT) \
-    .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY) \
-    .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY) \
-    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
-    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
-    .config("spark.sql.shuffle.partitions", "8") \
-    .getOrCreate()
+# Por defecto el data lake vive en MinIO y las tablas son Delta. Los tests
+# redirigen ambas cosas a disco local con parquet para ejecutar el job sin
+# Docker; ver tests/test_pipeline_local.py.
+LAKE_ROOT = os.environ.get("FEB_LAKE_ROOT", "s3a://")
+TABLE_FORMAT = os.environ.get("FEB_TABLE_FORMAT", "delta")
 
-SILVER = "s3a://silver/"
-GOLD = "s3a://gold/"
+_builder = (SparkSession.builder.appName("FEB Gold")
+            .config("spark.sql.shuffle.partitions", "8"))
+if TABLE_FORMAT == "delta":
+    _builder = (_builder
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog",
+                        "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+if LAKE_ROOT.startswith("s3a://"):
+    _builder = (_builder
+                .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+                .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY)
+                .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY)
+                .config("spark.hadoop.fs.s3a.path.style.access", "true")
+                .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false"))
+spark = _builder.getOrCreate()
+
+SILVER = LAKE_ROOT + "silver/"
+GOLD = LAKE_ROOT + "gold/"
 
 
 def _ratio(numerator: str, denominator: str):
@@ -45,9 +56,12 @@ def _ratio(numerator: str, denominator: str):
 
 def build_dim_players():
     """Perfil de jugador por temporada: totales, medias por partido y ratios."""
-    df = spark.read.format("delta").load(SILVER + "players")
+    df = spark.read.format(TABLE_FORMAT).load(SILVER + "players")
 
     dim = df.groupBy("player_name", "year").agg(
+        # Un jugador puede cambiar de equipo a mitad de temporada: se queda el
+        # ultimo con el que aparece, que es el relevante para ojearlo hoy.
+        F.max(F.struct("game_date", "team")).alias("_last"),
         F.countDistinct("game_id").alias("games"),
         F.sum("minutes").alias("total_minutes"),
         F.sum("points").alias("total_points"),
@@ -75,6 +89,8 @@ def build_dim_players():
         F.max("val").alias("best_val"),
     )
 
+    dim = dim.withColumn("team", F.col("_last.team")).drop("_last")
+
     dim = (dim.withColumn("two_point_pct", _ratio("total_2pm", "total_2pa"))
               .withColumn("three_point_pct", _ratio("total_3pm", "total_3pa"))
               .withColumn("free_throw_pct", _ratio("total_ftm", "total_fta"))
@@ -88,12 +104,12 @@ def build_dim_players():
               .withColumn("val_per_minute", F.when(
                   F.col("total_minutes") > 0, F.col("total_val") / F.col("total_minutes"))))
 
-    dim.write.mode("overwrite").partitionBy("year").format("delta").save(GOLD + "dim_jugadores")
+    dim.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(GOLD + "dim_jugadores")
     print(f"gold_dim_jugadores: {dim.count()}")
 
 
 def build_dim_teams():
-    df = spark.read.format("delta").load(SILVER + "teamstats")
+    df = spark.read.format(TABLE_FORMAT).load(SILVER + "teamstats")
     dim = df.groupBy("team_id", "team_name", "year").agg(
         F.countDistinct("game_id").alias("games"),
         F.sum("points").alias("total_points"),
@@ -107,17 +123,17 @@ def build_dim_teams():
     dim = (dim.withColumn("two_point_pct", _ratio("total_2pm", "total_2pa"))
               .withColumn("three_point_pct", _ratio("total_3pm", "total_3pa"))
               .withColumn("free_throw_pct", _ratio("total_ftm", "total_fta")))
-    dim.write.mode("overwrite").partitionBy("year").format("delta").save(GOLD + "dim_equipos")
+    dim.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(GOLD + "dim_equipos")
     print(f"gold_dim_equipos: {dim.count()}")
 
 
 def build_fact_partidos():
     """Un registro por partido. El marcador se reconstruye sumando los puntos
     de los jugadores de cada lado, que es lo unico que trae la ficha web."""
-    players = spark.read.format("delta").load(SILVER + "players")
+    players = spark.read.format(TABLE_FORMAT).load(SILVER + "players")
 
     home = (players.filter(F.col("is_home"))
-            .groupBy("game_id", "year", "date")
+            .groupBy("game_id", "year", "date", "game_date", "home_team", "away_team")
             .agg(F.sum("points").alias("home_score")))
     away = (players.filter(~F.col("is_home"))
             .groupBy("game_id")
@@ -130,12 +146,12 @@ def build_fact_partidos():
                         .otherwise("empate"))
             .withColumn("margin", F.abs(F.col("home_score") - F.col("away_score"))))
 
-    fact.write.mode("overwrite").partitionBy("year").format("delta").save(GOLD + "fact_partidos")
+    fact.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(GOLD + "fact_partidos")
     print(f"gold_fact_partidos: {fact.count()}")
 
 
 def build_fact_team_stats():
-    df = spark.read.format("delta").load(SILVER + "teamstats")
+    df = spark.read.format(TABLE_FORMAT).load(SILVER + "teamstats")
     df = (df.withColumn("fgm", F.col("t2m") + F.col("t3m"))
             .withColumn("fga", F.col("t2a") + F.col("t3a")))
     df = (df.withColumn("fg_pct", _ratio("fgm", "fga"))
@@ -150,7 +166,7 @@ def build_fact_team_stats():
     df = df.withColumn("offensive_rating", F.when(
         F.col("possessions") > 0, F.col("points") / F.col("possessions") * 100))
 
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(
         GOLD + "fact_equipo_estadisticas")
     print(f"gold_fact_equipo_estadisticas: {df.count()}")
 
@@ -168,7 +184,7 @@ RESTRICTED_AREA_M = 1.25
 
 def build_fact_tiros():
     """Tiros con distancia en metros y zona, a partir de las coordenadas de la API."""
-    df = spark.read.format("delta").load(SILVER + "shots")
+    df = spark.read.format(TABLE_FORMAT).load(SILVER + "shots")
 
     # Cada tiro se mide contra el aro de su mitad de pista.
     hoop_x = F.when(F.col("x") < 50, F.lit(HOOP_X_PCT)).otherwise(F.lit(100 - HOOP_X_PCT))
@@ -185,7 +201,7 @@ def build_fact_tiros():
                                               F.when(distance > THREE_POINT_M, 3).otherwise(2))
                         .otherwise(0)))
 
-    df.write.mode("overwrite").partitionBy("year").format("delta").save(GOLD + "fact_tiros")
+    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(GOLD + "fact_tiros")
     print(f"gold_fact_tiros: {df.count()}")
 
 

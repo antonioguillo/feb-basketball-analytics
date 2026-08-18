@@ -13,6 +13,8 @@
 #   ./run_pipeline.sh gold                     # ejecuta el job gold
 #   ./run_pipeline.sh export                   # gold/silver Delta -> staging parquet
 #   ./run_pipeline.sh clickhouse               # carga staging en ClickHouse
+#   ./run_pipeline.sh api                      # levanta la API REST (puerto 8000)
+#   ./run_pipeline.sh front                    # levanta el frontend (puerto 3000)
 #   ./run_pipeline.sh vacuum                   # VACUUM Delta (mantenimiento opcional)
 #   ./run_pipeline.sh all [game_id]            # flujo completo de un partido
 #   ./run_pipeline.sh liga-all <comp> [--limit N]
@@ -85,8 +87,8 @@ spark = (SparkSession.builder.appName('vacuum')
   .config('spark.hadoop.fs.s3a.impl','org.apache.hadoop.fs.s3a.S3AFileSystem')
   .config('spark.hadoop.fs.s3a.connection.ssl.enabled','false')
   .config('spark.databricks.delta.retentionDurationCheck.enabled','false').getOrCreate())
-for t in ['bronze/players','bronze/playbyplay','bronze/shots','bronze/teamstats',
-          'silver/players','silver/playbyplay','silver/shots','silver/teamstats',
+for t in ['bronze/games','bronze/players','bronze/playbyplay','bronze/shots','bronze/teamstats',
+          'silver/games','silver/players','silver/playbyplay','silver/shots','silver/teamstats',
           'gold/dim_jugadores','gold/dim_equipos','gold/fact_partidos',
           'gold/fact_equipo_estadisticas','gold/fact_tiros']:
     try:
@@ -187,10 +189,19 @@ case "$cmd" in
         ./run_pipeline.sh clickhouse
         echo "Pipeline de competición completado."
         ;;
+    api)
+        echo "Levantando la API en http://localhost:8000 (docs en /docs)..."
+        source venv/bin/activate
+        uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+        ;;
+    front)
+        echo "Levantando el frontend en http://localhost:3000..."
+        cd frontend && npm run dev
+        ;;
     down)
         docker compose down
         ;;
     *)
-        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|historico|bronze|silver|gold|export|clickhouse|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
+        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|historico|bronze|silver|gold|export|clickhouse|api|front|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
         ;;
 esac

@@ -33,11 +33,12 @@ export function projectShot(shot) {
   };
 }
 
+/** Claves tal y como las escribe jobs/spark_gold.py, no una traducción aparte. */
 export const ZONE_LABEL = {
-  rim: 'Cerca del aro',
-  mid: 'Media distancia',
-  three: 'Triple',
+  aro: 'Cerca del aro',
+  media: 'Media distancia',
+  triple: 'Triple',
 };
 
 /** Orden de lectura de las zonas: de la más cercana a la más lejana. */
-export const ZONE_ORDER = ['rim', 'mid', 'three'];
+export const ZONE_ORDER = ['aro', 'media', 'triple'];

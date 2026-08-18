@@ -8,6 +8,7 @@ Tablas de salida (en s3a://bronze/):
   - bronze_shots     : tiros con coordenadas
   - bronze_teamstats : stats de equipo
 """
+import os
 import sys
 from pyspark.sql import SparkSession, functions as F
 
@@ -15,21 +16,38 @@ MINIO_ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "http://minio:9000"
 ACCESS_KEY = sys.argv[2] if len(sys.argv) > 2 else "minioadmin"
 SECRET_KEY = sys.argv[3] if len(sys.argv) > 3 else "minioadmin"
 
-spark = SparkSession.builder \
-    .appName("FEB Bronze") \
-    .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-    .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-    .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT) \
-    .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY) \
-    .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY) \
-    .config("spark.hadoop.fs.s3a.path.style.access", "true") \
-    .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-    .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false") \
-    .config("spark.sql.shuffle.partitions", "8") \
-    .getOrCreate()
+# Por defecto el data lake vive en MinIO y las tablas son Delta. Los tests
+# redirigen ambas cosas a disco local con parquet para ejecutar el job sin
+# Docker; ver tests/test_pipeline_local.py.
+LAKE_ROOT = os.environ.get("FEB_LAKE_ROOT", "s3a://")
+TABLE_FORMAT = os.environ.get("FEB_TABLE_FORMAT", "delta")
 
-RAW = "s3a://raw/"
-BRONZE = "s3a://bronze/"
+_builder = (SparkSession.builder.appName("FEB Bronze")
+            .config("spark.sql.shuffle.partitions", "8"))
+if TABLE_FORMAT == "delta":
+    _builder = (_builder
+                .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+                .config("spark.sql.catalog.spark_catalog",
+                        "org.apache.spark.sql.delta.catalog.DeltaCatalog"))
+if LAKE_ROOT.startswith("s3a://"):
+    _builder = (_builder
+                .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+                .config("spark.hadoop.fs.s3a.access.key", ACCESS_KEY)
+                .config("spark.hadoop.fs.s3a.secret.key", SECRET_KEY)
+                .config("spark.hadoop.fs.s3a.path.style.access", "true")
+                .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+                .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false"))
+spark = _builder.getOrCreate()
+
+RAW = LAKE_ROOT + "raw/"
+BRONZE = LAKE_ROOT + "bronze/"
+
+
+def save(df, name, partition_by="year"):
+    writer = df.write.mode("overwrite")
+    if partition_by:
+        writer = writer.partitionBy(partition_by)
+    writer.format(TABLE_FORMAT).save(BRONZE + name)
 
 
 def read_raw() -> "DataFrame":
@@ -38,16 +56,42 @@ def read_raw() -> "DataFrame":
     return df
 
 
+def build_games(df):
+    """Una fila por partido con los nombres de los equipos.
+
+    Sin esto no se puede saber con que equipo jugo cada jugador: la ficha solo
+    marca si es local o visitante, y los nombres viven en la cabecera del JSON.
+    """
+    games = df.select(
+        F.col("meta.game_id").alias("game_id"),
+        F.col("year"),
+        F.col("meta.date").alias("date"),
+        F.col("meta.time").alias("tipoff"),
+        F.col("meta.venue").alias("venue"),
+        F.col("meta.home_team").alias("home_team"),
+        F.col("meta.away_team").alias("away_team"),
+        F.col("meta.home_score").alias("home_score"),
+        F.col("meta.away_score").alias("away_score"),
+        F.col("meta.group").alias("group"),
+    ).dropDuplicates(["game_id"])
+    save(games, "games")
+    print(f"bronze_games: {games.count()} filas")
+
+
 def build_players(df):
     def flat(rows_col, is_home):
+        team_col = "meta.home_team" if is_home else "meta.away_team"
         return (df.select(
             F.col("meta.game_id").alias("game_id"),
             F.col("meta.date").alias("date"),
             F.col("year"),
             F.lit(is_home).alias("is_home"),
+            F.col(team_col).alias("team"),
+            F.col("meta.home_team").alias("home_team"),
+            F.col("meta.away_team").alias("away_team"),
             F.explode(rows_col).alias("p"),
         ).select(
-            "game_id", "date", "year", "is_home",
+            "game_id", "date", "year", "is_home", "team", "home_team", "away_team",
             F.col("p.jersey").alias("jersey"),
             F.col("p.name").alias("player_name"),
             F.col("p.player_id").alias("player_id"),
@@ -72,7 +116,7 @@ def build_players(df):
     home = flat("players_home", True)
     away = flat("players_away", False)
     players = home.unionByName(away)
-    players.write.mode("overwrite").partitionBy("year").format("delta").save(BRONZE + "players")
+    save(players, "players")
     print(f"bronze_players: {players.count()} filas")
 
 
@@ -92,7 +136,7 @@ def build_playbyplay(df):
         F.col("line.scoreA").alias("scoreA"),
         F.col("line.scoreB").alias("scoreB"),
     ))
-    pbp.write.mode("overwrite").partitionBy("year").format("delta").save(BRONZE + "playbyplay")
+    save(pbp, "playbyplay")
     print(f"bronze_playbyplay: {pbp.count()} filas")
 
 
@@ -111,7 +155,7 @@ def build_shots(df):
         F.col("s.x").alias("x"),
         F.col("s.y").alias("y"),
     ))
-    shots.write.mode("overwrite").partitionBy("year").format("delta").save(BRONZE + "shots")
+    save(shots, "shots")
     print(f"bronze_shots: {shots.count()} filas")
 
 
@@ -143,12 +187,13 @@ def build_teamstats(df):
         ))
 
     teams = flat_teams("team_stats")
-    teams.write.mode("overwrite").partitionBy("year").format("delta").save(BRONZE + "teamstats")
+    save(teams, "teamstats")
     print(f"bronze_teamstats: {teams.count()} filas")
 
 
 if __name__ == "__main__":
     raw = read_raw()
+    build_games(raw)
     build_players(raw)
     build_playbyplay(raw)
     build_shots(raw)
