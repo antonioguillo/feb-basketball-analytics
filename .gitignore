@@ -1,0 +1,33 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Streamlit/Streamlit specific
+.streamlit/
+.toml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker
+.dockerinit
+
+# Environment variables
+.env
+
+# Logs
+logs/
+
+# Testing
+.hypothesis/
+.tox
+
+# Secret files
+secrets/
