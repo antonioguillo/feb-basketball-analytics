@@ -127,6 +127,13 @@ case "$cmd" in
         source venv/bin/activate
         python main.py grupo-e --upload "$@"
         ;;
+    historico)
+        COMP="${2:-tercerafeb}"
+        shift 2 2>/dev/null || shift
+        echo "Descargando histórico completo de $COMP a raw..."
+        source venv/bin/activate
+        python main.py historico "$COMP" --upload "$@"
+        ;;
     bronze)
         run_spark spark_bronze.py
         ;;
@@ -184,6 +191,6 @@ case "$cmd" in
         docker compose down
         ;;
     *)
-        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|bronze|silver|gold|export|clickhouse|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
+        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|historico|bronze|silver|gold|export|clickhouse|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
         ;;
 esac

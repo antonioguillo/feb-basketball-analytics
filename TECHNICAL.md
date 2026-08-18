@@ -87,12 +87,35 @@ Opciones:
 ```
 
 **Detalle técnico del scrapeo:**
-- Flujo de 2 pasos por cada jornada:
-  1. POST al selector de grupos (`gruposDropDownList`) fijando el grupo y temporada
-  2. POST al selector de jornadas (`jornadasDropDownList`) fijando la jornada
-  3. Regex `Partido\.aspx\?p=(\d+)` extrae los game IDs
-- `get_game_links_by_group(group_id, season, max_journeys=None)` en `scraper.py:line_x` itera todas las jornadas. Sin parámetro, usa `max_journeys=None` → todas las 26 jornadas.
-- ~7 partidos por jornada × 26 jornadas × 2 subgrupos × 4 temporadas = **1275 partidos** por temporada completa.
+
+`resultados.aspx` es un WebForm de ASP.NET. Al cargarlo por GET solo muestra la
+jornada activa del grupo por defecto (**2 partidos**), no el histórico. Los
+`<select>` de temporada/grupo/jornada son autopostbacks: hay que reenviar el
+`__VIEWSTATE` de la página para que el servidor devuelva otra selección.
+
+Flujo implementado en `get_game_links_by_group()`:
+
+1. GET de `resultados.aspx?g=<comp>&t=<temporada>` → estado inicial del formulario.
+2. POST con `__EVENTTARGET=_ctl0:MainContentPlaceHolderMaster:gruposDropDownList`
+   fijando el grupo → la respuesta trae las jornadas **de ese grupo**.
+3. Un POST por jornada con `__EVENTTARGET=...jornadasDropDownList`, reenviando el
+   `__VIEWSTATE` devuelto en el paso 2.
+4. Regex `Partido\.aspx\?p=(\d+)` sobre cada respuesta; se deduplica conservando
+   el orden.
+
+Los nombres de los campos llevan el prefijo `_ctl0:MainContentPlaceHolderMaster:`
+(constantes `FIELD_SEASON` / `FIELD_GROUP` / `FIELD_JOURNEY` en `scraper.py`).
+
+Medido contra la web: un grupo de liga regular son 26 jornadas y **175 partidos**
+únicos (algunas jornadas tienen menos de 7 encuentros). Tercera FEB publica 10
+grupos de liga regular por temporada y 28 temporadas en el selector.
+
+`get_groups(competition_id, season)` y `get_seasons(competition_id)` descubren los
+ids en el propio selector, de modo que no hacen falta tablas codificadas a mano
+como `EBA_GROUP_E` para cubrir una competición nueva.
+
+> Regresión cubierta por `tests/test_scraper_parsing.py`: si alguien vuelve a
+> resolver esto con un solo GET, los tests fallan.
 
 ### 2. Bronze Layer (Spark)
 
@@ -327,6 +350,16 @@ docker exec feb-clickhouse clickhouse-client --query "SELECT count() FROM feb.ju
 | Vacuum Delta excesivamente lento | Sustituido por export Delta→staging parquet → ClickHouse load | `jobs/export_clickhouse.py` |
 | Paginación FEB por jornadas (no solo página default) | `get_game_links_by_group` reescrito para iterar las 26 jornadas por subgrupo | `src/scraper.py` |
 | Substring año en raw paths | `substring(indexOf('year=')+5, 4)` en lugar de `substring(7,4)` | `jobs/spark_bronze.py:37` (ver fix anterior) |
+| `get_game_links_by_group` hacía un GET plano: devolvía 2 partidos y **ignoraba el grupo** (el filtro era un `pass`), así que E-A y E-B daban los mismos enlaces | Implementados los postbacks reales de grupo y jornada | `src/scraper.py` |
+| `spark_gold.py` sin imports, sin `SparkSession` y sin `SILVER`/`GOLD`: `NameError` en la primera línea ejecutada | Reescrito el job completo | `jobs/spark_gold.py` |
+| `spark_silver.py` referenciaba 8 columnas inexistentes (`two_points_attempted`, `efficiency`, `plus_minus_48`…) y `F.col("0.44")` como si fuera una columna | Métricas recalculadas sobre el esquema real de bronze | `jobs/spark_silver.py` |
+| `list_objects_v2` sin paginar: corta en 1000 claves, así que la idempotencia daba por ausentes partidos ya subidos | Paginación + `existing_game_ids()` | `src/raw_store.py` |
+| Token Bearer pedido una vez **por partido** (petición HTTP extra en cada uno de miles) | Token cacheado en la sesión, renovado solo ante un 401 | `src/scraper.py` |
+| `is_three` usaba `y > 220` con coordenadas que en realidad son porcentajes 0-100 y con dos canastas | Geometría en metros calibrada contra el box score (0,8 % de error) | `jobs/spark_gold.py` |
+
+> Las cifras de filas de este documento provienen de ejecuciones anteriores a
+> estos arreglos y solo son orientativas: las capas silver/gold no llegaban a
+> completarse, así que conviene regenerarlas y volver a medir.
 
 ---
 

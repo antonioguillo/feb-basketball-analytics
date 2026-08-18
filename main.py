@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from src import Pipeline, COMPETITIONS, FEBBasketballScraper
-from src.models import EBA_GROUP_E
+from src.models import EBA_GROUP_E, group_slug
 
 
 def scrape_single_game(game_id: str, upload_raw: bool = False, competition: str = "partido_suelto"):
@@ -182,7 +182,117 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
     print(f"\nResumen Grupo E: {total_scraped} scrapeados, {total_skipped} omitidos, {total_failed} fallidos")
 
 
+def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bool = False,
+                     limit: int = None, force: bool = False, delay: float = 1.0,
+                     max_journeys: int = None, only_regular: bool = True):
+    """Descarga el historico completo de una competicion.
+
+    Descubre los grupos de cada temporada en el propio selector de la web (en vez
+    de depender de ids codificados a mano) y recorre todas las jornadas de cada
+    grupo. Sube cada partido a raw en:
+        competition=<comp>/year=<temporada>/group=<slug>/game_id=<id>.json
+
+    Es idempotente: consulta los ids ya presentes en raw y los omite salvo --force.
+    """
+    competition = COMPETITIONS.get(competition_name)
+    if not competition:
+        print(f"Competición no encontrada. Opciones: {list(COMPETITIONS.keys())}")
+        sys.exit(1)
+
+    scraper = FEBBasketballScraper(delay=delay)
+
+    if not seasons:
+        seasons = [year for year, _ in scraper.get_seasons(competition.id)]
+        print(f"Temporadas detectadas en la web: {len(seasons)} ({seasons[0]}..{seasons[-1]})")
+
+    store = None
+    existing = set()
+    if upload_raw:
+        from src.raw_store import RawStore
+        store = RawStore(endpoint=os.environ.get("MINIO_ENDPOINT", "localhost:9000"))
+        if not force:
+            existing = store.existing_game_ids(competition=competition_name)
+            print(f"Partidos ya en raw para {competition_name}: {len(existing)}")
+
+    scraped = skipped = failed = 0
+    for season in seasons:
+        try:
+            groups = scraper.get_groups(competition.id, season)
+        except Exception as e:
+            print(f"Temporada {season}: no se pudieron listar los grupos ({str(e)[:80]})")
+            continue
+
+        if only_regular:
+            groups = [(gid, name) for gid, name in groups if 'Liga Regular' in name]
+        if not groups:
+            print(f"Temporada {season}: sin grupos que scrapear")
+            continue
+
+        print(f"\n=== Temporada {season} | {len(groups)} grupos ===")
+        for group_id, group_name in groups:
+            slug = group_slug(group_name)
+            try:
+                links = scraper.get_game_links_by_group(
+                    competition.id, season, group_id, max_journeys=max_journeys)
+            except Exception as e:
+                print(f"  [{slug}] error listando partidos: {str(e)[:80]}")
+                continue
+            print(f"  [{slug}] {len(links)} partidos")
+
+            for url in links:
+                if limit is not None and scraped >= limit:
+                    print(f"\nLímite de {limit} partidos alcanzado.")
+                    print(f"Resumen: {scraped} scrapeados, {skipped} omitidos, {failed} fallidos")
+                    return
+
+                game_id = re.search(r'(?:partido/|p=)(\d+)', url).group(1)
+                if game_id in existing:
+                    skipped += 1
+                    continue
+                try:
+                    game = scraper.scrape_game(url)
+                    if not game:
+                        failed += 1
+                        continue
+                    if store:
+                        store.upload_game(game, competition=competition_name,
+                                          year=season, group=slug)
+                        existing.add(game_id)
+                    scraped += 1
+                    if scraped % 25 == 0:
+                        print(f"    ... {scraped} scrapeados")
+                except Exception as e:
+                    print(f"    partido {game_id}: ERROR {str(e)[:100]}")
+                    failed += 1
+
+    print(f"\nResumen histórico {competition_name}: "
+          f"{scraped} scrapeados, {skipped} omitidos, {failed} fallidos")
+
+
+def _flag_value(argv, flag, cast=str, default=None):
+    """Lee '--flag valor' de argv sin depender del orden."""
+    if flag not in argv:
+        return default
+    index = argv.index(flag) + 1
+    return cast(argv[index]) if index < len(argv) else default
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == 'historico':
+        competition_name = sys.argv[2] if len(sys.argv) > 2 else 'tercerafeb'
+        seasons_arg = _flag_value(sys.argv, '--seasons')
+        scrape_historico(
+            competition_name,
+            seasons=seasons_arg.split(',') if seasons_arg else None,
+            upload_raw='--upload' in sys.argv,
+            force='--force' in sys.argv,
+            limit=_flag_value(sys.argv, '--limit', int),
+            delay=_flag_value(sys.argv, '--delay', float, 1.0),
+            max_journeys=_flag_value(sys.argv, '--max-journeys', int),
+            only_regular='--all-groups' not in sys.argv,
+        )
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == 'partido':
         game_id = sys.argv[2]
         upload = '--upload' in sys.argv

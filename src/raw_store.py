@@ -3,7 +3,8 @@ Cada partido se guarda en raw/competicion=<name>/anio=<year>/partido=<id>.json
 para permitir reprocesamientos y auditoría."""
 import io
 import json
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -46,7 +47,7 @@ class RawStore:
                 "away_team": game.away_team,
                 "home_score": game.home_score,
                 "away_score": game.away_score,
-                "scraped_at": datetime.utcnow().isoformat(),
+                "scraped_at": datetime.now(timezone.utc).isoformat(),
                 "source": "feb.es",
             },
             "players_home": [vars(s) for s in game.home_stats],
@@ -70,10 +71,31 @@ class RawStore:
         return f"s3://{self.bucket}/{key}"
 
     def list_games(self, competition: Optional[str] = None, year: Optional[str] = None) -> list:
+        """Lista las claves de raw bajo el prefijo dado.
+
+        Usa paginacion: list_objects_v2 devuelve como mucho 1000 claves por
+        llamada, y una sola temporada ya supera esa cifra. Sin paginar, la
+        comprobacion de idempotencia daria por ausentes partidos ya subidos y
+        los volveria a scrapear.
+        """
         prefix = ""
         if competition:
             prefix += f"competition={competition}/"
         if year:
             prefix += f"year={year}/"
-        result = self.client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-        return [o["Key"] for o in result.get("Contents", [])]
+
+        keys = []
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            keys.extend(o["Key"] for o in page.get("Contents", []))
+        return keys
+
+    def existing_game_ids(self, competition: Optional[str] = None,
+                          year: Optional[str] = None) -> set:
+        """IDs de partido ya presentes en raw, para saltarlos al re-escanear."""
+        ids = set()
+        for key in self.list_games(competition=competition, year=year):
+            match = re.search(r"game_id=(\d+)\.json$", key)
+            if match:
+                ids.add(match.group(1))
+        return ids

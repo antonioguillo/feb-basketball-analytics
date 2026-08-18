@@ -8,7 +8,6 @@ Salida en s3a://silver/ (Delta).
 """
 import sys
 from pyspark.sql import SparkSession, functions as F
-from pyspark.sql.types import DateType
 
 MINIO_ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "http://minio:9000"
 ACCESS_KEY = sys.argv[2] if len(sys.argv) > 2 else "minioadmin"
@@ -30,19 +29,9 @@ spark = SparkSession.builder \
 BRONZE = "s3a://bronze/"
 SILVER = "s3a://silver/"
 
-INT_COLS = ["jersey", "puntos", "t2m", "t2a", "t3m", "t3a", "ftm", "fta", "reb",
-            "ast", "stl", "blk", "to", "pf", "plus_minus", "val",
-            "double_double_condition", "triple_double_condition"]
-FLOAT_COLS = ["minutes", "x", "y",
-              # Nuevas métricas avanzables
-              "two_point_pct", "three_point_pct", "free_throw_pct",
-              "effective_fg_pct", "true_shooting_pct",
-              "plus_minus_48", "offensive_rating_estimate", "defensive_rating_estimate",
-              "net_rating_estimate", "efficiency_per_minute", "val_per_minute",
-              "usage_rate_estimate", "points_per_36", "points_per_48",
-              "turnover_per_36", "steal_per_36", "block_per_36",
-              "rebounds_per_36", "fouls_per_36",
-              "efficiency_per_minute", "points_per_possession"]
+# Columnas enteras tal y como las produce bronze (ver jobs/spark_bronze.py).
+INT_COLS = ["jersey", "points", "t2m", "t2a", "t3m", "t3a", "ftm", "fta", "reb",
+            "ast", "stl", "blk", "to", "pf", "plus_minus", "val"]
 
 
 def _to_int(df, cols):
@@ -57,46 +46,63 @@ def _to_float(df, cols):
     return df
 
 
+def _per_minute(df, name, numerator, per=36):
+    """Tasa proyectada a `per` minutos; null si el jugador no jugo."""
+    return df.withColumn(name, F.when(
+        F.col("minutes") > 0, F.col(numerator) / F.col("minutes") * per
+    ).cast("double"))
+
+
 def clean_players():
     df = spark.read.format("delta").load(BRONZE + "players")
+
+    # bronze usa nombres heredados del scraper; silver fija el contrato que
+    # consumen gold, el export a staging y el esquema de ClickHouse.
+    df = (df.withColumnRenamed("minutes_played", "minutes")
+            .withColumnRenamed("puntos", "points"))
+
     df = _to_int(df, INT_COLS)
     df = _to_float(df, ["minutes"])
-    # --- NUEVAS MÉTRICAS AVANZABLES EN SILVER ---
-    # effective_fg_pct: (2PM + 1.5 × 3PM) / FGA - pondremos null en silver, calcularemos en gold
-    df = df.withColumn("effective_fg_pct", F.lit(None).cast("float"))
-    # true_shooting_pct: points / (2 × (2PA + 0.44 × FTA)) - pondremos null en silver
-    df = df.withColumn("true_shooting_pct", F.lit(None).cast("float"))
-    # val_per_minute: efficiency / minutos
-    df = df.withColumn("val_per_minute", F.when(F.col("minutes_played") > 0,
-                                                 F.col("val") / F.col("minutes_played")).otherwise(F.lit(None).cast("float")))
-    # usage_rate_estimate: refinamos la fórmula
-    df = df.withColumn("usage_rate_estimate",
-                       F.when(F.col("minutes_played") > 0,
-                              (F.col("two_points_attempted") + F.col("0.44") * F.col("free_throws_attempted") + F.col("turnovers")) * (48 / F.col("minutes_played")) * 0.2).otherwise(F.lit(None).cast("float")))
-    # net_rating_estimate: aproximado
-    df = df.withColumn("net_rating_estimate",
-                       F.when(F.col("plus_minus_48").isNotNull(),
-                              F.col("plus_minus_48") + F.col("offensive_rating_estimate") - F.col("defensive_rating_estimate")).otherwise(F.lit(None).cast("float")))
-    # efficiency_per_minute
-    df = df.withColumn("efficiency_per_minute", F.when(F.col("minutes_played") > 0,
-                                                     F.col("efficiency") / F.col("minutes_played")).otherwise(F.lit(None).cast("float")))
-    # --- RATINGS AVANZADOS (quedan en null hasta gold) ---
-    df = df.withColumn("offensive_rating_estimate", F.lit(None).cast("float"))
-    df = df.withColumn("defensive_rating_estimate", F.lit(None).cast("float"))
-    # --- PER-36 rates (calculables desde los totales de partido) ---
-    df = df.withColumn("turnover_per_36", F.when(F.col("minutes_played") > 0,
-                                                 F.col("to") / F.col("minutes_played") * 36).otherwise(F.lit(None).cast("float")))
-    df = df.withColumn("steal_per_36", F.when(F.col("minutes_played") > 0,
-                                             F.col("stl") / F.col("minutes_played") * 36).otherwise(F.lit(None).cast("float")))
-    df = df.withColumn("block_per_36", F.when(F.col("minutes_played") > 0,
-                                             F.col("blk") / F.col("minutes_played") * 36).otherwise(F.lit(None).cast("float")))
-    df = df.withColumn("rebounds_per_36", F.when(F.col("minutes_played") > 0,
-                                                F.col("reb") / F.col("minutes_played") * 36).otherwise(F.lit(None).cast("float")))
-    df = df.withColumn("fouls_per_36", F.when(F.col("minutes_played") > 0,
-                                             F.col("pf") / F.col("minutes_played") * 36).otherwise(F.lit(None).cast("float")))
-    # --- CONVERSIONES ---
-    df = _to_float(df, FLOAT_COLS)
-    df = df.filter(F.col("player_name").isNotNull()).dropDuplicates(["game_id", "player_name", "jersey"])
+    df = df.withColumn("game_date", F.to_date(F.col("date"), "dd/MM/yyyy"))
+
+    # Tiros de campo = tiros de 2 + tiros de 3.
+    df = (df.withColumn("fgm", F.col("t2m") + F.col("t3m"))
+            .withColumn("fga", F.col("t2a") + F.col("t3a")))
+
+    # Porcentajes de tiro (null si no hubo intentos, no 0: no es lo mismo).
+    df = (df.withColumn("two_point_pct", F.when(F.col("t2a") > 0, F.col("t2m") / F.col("t2a")))
+            .withColumn("three_point_pct", F.when(F.col("t3a") > 0, F.col("t3m") / F.col("t3a")))
+            .withColumn("free_throw_pct", F.when(F.col("fta") > 0, F.col("ftm") / F.col("fta")))
+            .withColumn("field_goal_pct", F.when(F.col("fga") > 0, F.col("fgm") / F.col("fga"))))
+
+    # eFG% = (FGM + 0.5*3PM) / FGA  -- pondera que el triple vale mas.
+    df = df.withColumn("effective_fg_pct", F.when(
+        F.col("fga") > 0, (F.col("fgm") + 0.5 * F.col("t3m")) / F.col("fga")))
+
+    # TS% = PTS / (2 * (FGA + 0.44*FTA))  -- incluye tiros libres.
+    df = df.withColumn("true_shooting_pct", F.when(
+        (F.col("fga") + F.col("fta")) > 0,
+        F.col("points") / (2 * (F.col("fga") + 0.44 * F.col("fta")))))
+
+    # Ritmos normalizados por minutos jugados.
+    for name, source in [("points_per_36", "points"), ("rebounds_per_36", "reb"),
+                         ("assists_per_36", "ast"), ("steals_per_36", "stl"),
+                         ("blocks_per_36", "blk"), ("turnovers_per_36", "to"),
+                         ("fouls_per_36", "pf")]:
+        df = _per_minute(df, name, source)
+    df = _per_minute(df, "val_per_36", "val")
+    df = df.withColumn("val_per_minute", F.when(
+        F.col("minutes") > 0, F.col("val") / F.col("minutes")).cast("double"))
+
+    # Dobles-dobles / triples-dobles sobre las cinco categorias clasicas.
+    categories = [F.col(c) >= 10 for c in ("points", "reb", "ast", "stl", "blk")]
+    double_count = sum(c.cast("int") for c in categories)
+    df = (df.withColumn("double_digit_categories", double_count)
+            .withColumn("is_double_double", double_count >= 2)
+            .withColumn("is_triple_double", double_count >= 3))
+
+    df = df.filter(F.col("player_name").isNotNull()).dropDuplicates(
+        ["game_id", "player_name", "jersey"])
     df.write.mode("overwrite").partitionBy("year").format("delta").save(SILVER + "players")
     print(f"silver_players: {df.count()}")
 

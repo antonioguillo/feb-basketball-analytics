@@ -64,6 +64,33 @@ pip install -r requirements.txt
 ./run_pipeline.sh down         # apaga todo
 ```
 
+### Histórico completo (recomendado)
+
+`historico` descubre en la propia web los grupos de cada temporada y recorre
+**todas las jornadas** de cada uno, sin ids codificados a mano:
+
+```bash
+# Todo el histórico de Tercera FEB que publique la web (28 temporadas disponibles)
+./run_pipeline.sh historico tercerafeb
+
+# Temporadas concretas, y solo unas jornadas por grupo (prueba rápida)
+./run_pipeline.sh historico segundafeb --seasons 2023,2024 --max-journeys 2
+
+# Incluir play-offs y copas además de la liga regular
+./run_pipeline.sh historico tercerafeb --all-groups
+
+# Sin subir a raw (solo listar/scrapear), directamente por Python
+python main.py historico primerafeb --seasons 2024 --limit 10
+```
+
+Opciones: `--seasons a,b` · `--limit N` · `--delay S` · `--max-journeys N` ·
+`--force` (re-scrapea lo ya presente) · `--all-groups`.
+
+Es idempotente: consulta los `game_id` ya en raw y los omite salvo `--force`.
+
+> Volumen orientativo: un grupo de liga regular son 26 jornadas × ~7 partidos
+> ≈ **175 partidos**. Tercera FEB tiene 10 grupos de liga regular por temporada.
+
 ### Escaneo de competiciones completas
 
 ```bash
@@ -140,9 +167,22 @@ Contiene: ficha del partido, `players` (locales y visitantes), `play_by_play`, `
 Tipos correctos, `game_date` en ISO, deduplicado y sin nulos.
 
 ### gold (MinIO `gold/`, Delta)
-- `dim_jugadores` (19 por partido), `dim_equipos` (2)
-- `fact_partidos` (1 por partido, con winner), `fact_equipo_estadisticas` (2, con porcentajes)
-- `fact_tiros` (142 por partido, para mapas de tiro)
+- `dim_jugadores`: perfil **por jugador y temporada** — totales, medias por partido
+  (`ppg`/`rpg`/`apg`/`mpg`), dobles-dobles y ratios de tiro. Los porcentajes se
+  calculan sumando aciertos e intentos y dividiendo al final, no promediando los
+  porcentajes de cada partido (eso daría el mismo peso a un 1/1 que a un 8/15).
+- `dim_equipos`: equipos por temporada con totales y porcentajes.
+- `fact_partidos`: uno por partido, con `winner`, `total_points` y `margin`.
+- `fact_equipo_estadisticas`: por equipo y partido, con `possessions` estimadas
+  (`FGA - ORB + TO + 0.44·FTA`) y `offensive_rating` por 100 posesiones.
+- `fact_tiros`: tiro a tiro con `shot_distance_m`, `zone` (aro/media/triple) e
+  `is_three`.
+
+**Coordenadas de tiro**: la API interna devuelve `x`/`y` como porcentaje (0-100)
+sobre la pista completa, con las dos canastas en extremos opuestos del eje `x`.
+Se convierten a metros sobre una pista FIBA de 28×15 m. La posición del aro
+(5% del largo) y el radio del triple (6.6 m) se calibraron contra los intentos
+de 3 del box score de 6 partidos (836 tiros): 0,8 % de discrepancia.
 
 ## ClickHouse (consumo SQL)
 
@@ -204,5 +244,16 @@ feb-basketball-analytics/
 ├── docker-compose.yml        # MinIO + Spark + ClickHouse
 ├── run_pipeline.sh           # Orquestador de todo el flujo
 ├── main.py                   # CLI de scraping
+├── tests/
+│   └── test_scraper_parsing.py  # Tests sin red del recorrido de jornadas
 └── data/processed/           # Parquets locales (cache de scraping)
 ```
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+No requieren red ni Spark: simulan las respuestas del WebForm de la FEB para
+comprobar que se encadenan los postbacks de grupo y jornada.

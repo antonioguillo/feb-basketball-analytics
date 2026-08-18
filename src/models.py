@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -42,5 +43,18 @@ EBA_GROUP_E = {
 def get_competition(name: str) -> Optional[Competition]:
     return COMPETITIONS.get(name.lower())
 
-def parse_game_stats(page_html: str) -> dict:
-    return {}
+
+def group_slug(group_name: str) -> str:
+    """Nombre de grupo del selector web -> identificador apto para una ruta S3.
+
+    'Liga Regular "E-A"'  -> 'E-A'
+    'Liga Regular Unico'  -> 'unico'
+    """
+    quoted = re.search(r'"([^"]+)"', group_name)
+    raw = quoted.group(1) if quoted else group_name.replace('Liga Regular', '')
+    # Los nombres traen acentos ('Unico'); se normalizan para que la ruta S3
+    # quede en ASCII y sea estable entre sistemas.
+    ascii_raw = (unicodedata.normalize('NFKD', raw.strip())
+                 .encode('ascii', 'ignore').decode('ascii'))
+    slug = re.sub(r'[^A-Za-z0-9]+', '-', ascii_raw).strip('-')
+    return slug or 'ungrouped'

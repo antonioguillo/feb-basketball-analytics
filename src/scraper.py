@@ -1,7 +1,10 @@
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, FeatureNotFound
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from typing import Optional, List, Dict, Tuple, Any
 from dataclasses import dataclass, field
+import html as html_lib
 import re
 import time
 import json
@@ -12,6 +15,15 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.feb.es/competiciones"
 API_URL = "https://intrafeb.feb.es/LiveStats.API/api/v1"
+
+# Prefijo de los controles WebForms en resultados.aspx. Los <select> de
+# temporada/grupo/jornada son postbacks de ASP.NET: hay que reenviar el
+# __VIEWSTATE de la pagina para que el servidor devuelva otra seleccion.
+CTL_PREFIX = "_ctl0:MainContentPlaceHolderMaster:"
+FIELD_SEASON = CTL_PREFIX + "temporadasDropDownList"
+FIELD_GROUP = CTL_PREFIX + "gruposDropDownList"
+FIELD_JOURNEY = CTL_PREFIX + "jornadasDropDownList"
+STATE_FIELDS = ("__VIEWSTATE", "__VIEWSTATEGENERATOR", "__EVENTVALIDATION")
 
 
 @dataclass
@@ -58,24 +70,49 @@ class Game:
 
 class FEBBasketballScraper:
     
-    def __init__(self, delay: float = 1.0):
+    def __init__(self, delay: float = 1.0, retries: int = 3):
         self.base_url = BASE_URL
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         })
+        # Reintentos con backoff: al recorrer miles de partidos, un corte puntual
+        # o un 5xx no debe abortar el escaneo completo.
+        adapter = HTTPAdapter(max_retries=Retry(
+            total=retries, backoff_factor=1.0,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "POST"], raise_on_status=False))
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.delay = delay
-    
+        self._token: Optional[str] = None
+
+    @staticmethod
+    def _parse(markup: str) -> BeautifulSoup:
+        """lxml si esta disponible; si no, el parser de la stdlib."""
+        try:
+            return BeautifulSoup(markup, 'lxml')
+        except FeatureNotFound:
+            return BeautifulSoup(markup, 'html.parser')
+
     def _get(self, url: str) -> BeautifulSoup:
         time.sleep(self.delay)
-        response = self.session.get(url)
+        response = self.session.get(url, timeout=30)
         response.raise_for_status()
-        return BeautifulSoup(response.text, 'lxml')
+        return self._parse(response.text)
 
-    def _get_bearer_token(self) -> Optional[str]:
+    def _get_bearer_token(self, refresh: bool = False) -> Optional[str]:
+        """Token Bearer de la API interna, cacheado durante toda la sesion.
+
+        Antes se pedia una vez por partido, lo que anadia una peticion HTTP
+        extra a cada uno de los miles de partidos del historico.
+        """
+        if self._token and not refresh:
+            return self._token
         page = self.session.get("https://www.feb.es/competiciones/partido/0", timeout=20)
         match = re.search(r'id="_ctl0_token" value="([^"]+)"', page.text)
-        return match.group(1) if match else None
+        self._token = match.group(1) if match else None
+        return self._token
 
     def get_api_data(self, endpoint: str, game_id: int, token: Optional[str] = None) -> Dict[str, Any]:
         if not token:
@@ -95,6 +132,29 @@ class FEBBasketballScraper:
         response.raise_for_status()
         return response.json()
     
+    def _api_section(self, game_id: int, endpoint: str) -> Dict[str, Any]:
+        """Pide un endpoint de la API interna tolerando fallos.
+
+        Un 404 es normal (partido aun no jugado) y un 401 significa que el token
+        cacheado ha caducado, en cuyo caso se renueva y se reintenta una vez.
+        Devuelve {} si no hay datos: la ficha del partido se conserva igual.
+        """
+        for attempt in (1, 2):
+            try:
+                return self.get_api_data(endpoint, game_id, self._get_bearer_token())
+            except requests.HTTPError as e:
+                status = e.response.status_code if e.response is not None else None
+                if status == 401 and attempt == 1:
+                    logger.debug(f"Token caducado en {endpoint}, renovando")
+                    self._get_bearer_token(refresh=True)
+                    continue
+                logger.warning(f"{endpoint} partido {game_id}: HTTP {status}")
+                return {}
+            except Exception as e:
+                logger.warning(f"{endpoint} partido {game_id}: {e}")
+                return {}
+        return {}
+
     def get_game_links(self, competition_id: int, season_year: str = '2026') -> List[str]:
         url = f"{self.base_url}/resultados.aspx?g={competition_id}&t={season_year}"
         soup = self._get(url)
@@ -109,42 +169,116 @@ class FEBBasketballScraper:
         
         return list(links)
 
+    def _results_url(self, competition_id: int, season_year: str) -> str:
+        return f"{self.base_url}/resultados.aspx?g={competition_id}&t={season_year}"
+
+    def _get_html(self, url: str) -> str:
+        time.sleep(self.delay)
+        response = self.session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.text
+
+    @staticmethod
+    def _form_state(page_html: str) -> Dict[str, str]:
+        """Extrae los campos ocultos que ASP.NET exige reenviar en cada postback."""
+        state = {}
+        for name in STATE_FIELDS:
+            match = (re.search(rf'name="{name}"[^>]*value="([^"]*)"', page_html)
+                     or re.search(rf'id="{name}"[^>]*value="([^"]*)"', page_html))
+            state[name] = match.group(1) if match else ''
+        return state
+
+    @staticmethod
+    def _select_options(page_html: str, select_key: str) -> List[Tuple[str, str]]:
+        """Devuelve [(value, texto)] del <select> cuyo name contiene select_key."""
+        block = re.search(
+            rf'<select[^>]*name="[^"]*{select_key}[^"]*"[^>]*>(.*?)</select>',
+            page_html, re.S | re.I)
+        if not block:
+            return []
+        options = re.findall(r'<option[^>]*value="([^"]*)"[^>]*>([^<]*)</option>',
+                             block.group(1))
+        return [(v, html_lib.unescape(t).strip()) for v, t in options if v]
+
+    def _postback(self, url: str, page_html: str, target: str,
+                  fields: Dict[str, str]) -> str:
+        """Simula el cambio de un <select> con autopostback y devuelve el HTML."""
+        data = self._form_state(page_html)
+        data.update({"__EVENTTARGET": target, "__EVENTARGUMENT": "", "__LASTFOCUS": ""})
+        data.update(fields)
+        time.sleep(self.delay)
+        response = self.session.post(url, data=data, timeout=30)
+        response.raise_for_status()
+        return response.text
+
+    def _extract_game_ids(self, page_html: str) -> List[str]:
+        """IDs de partido en orden de aparicion, sin duplicados."""
+        return list(dict.fromkeys(re.findall(r'Partido\.aspx\?p=(\d+)', page_html)))
+
+    def get_groups(self, competition_id: int, season_year: str) -> List[Tuple[str, str]]:
+        """Lista los grupos disponibles de una competicion/temporada: [(id, nombre)].
+
+        Permite descubrir los ids del selector sin tenerlos codificados a mano,
+        de modo que sirve para cualquier competicion y cualquier temporada.
+        """
+        page_html = self._get_html(self._results_url(competition_id, season_year))
+        return self._select_options(page_html, 'grupos')
+
+    def get_seasons(self, competition_id: int) -> List[Tuple[str, str]]:
+        """Lista las temporadas disponibles de una competicion: [(año, etiqueta)]."""
+        page_html = self._get_html(self._results_url(competition_id, '2025'))
+        return self._select_options(page_html, 'temporadas')
+
     def get_game_links_by_group(self, competition_id: int, season_year: str,
                                 group_id: str, max_journeys: int = None) -> List[str]:
-        """Obtiene todos los partidos de un grupo concreto de una competición y
-        temporada.
+        """Obtiene TODOS los partidos de un grupo recorriendo sus jornadas.
 
-        Dado que la web FEB carga las jornadas mediante JavaScript, este método
-        extrae los enlaces de la página de resultados y filtra por el grupo identificado.
+        resultados.aspx es un WebForm: al cargarlo solo muestra la jornada activa
+        del grupo por defecto (2 partidos), no el historico. Para recorrerlo hay
+        que encadenar dos postbacks:
+          1. __EVENTTARGET=gruposDropDownList  -> fija el grupo y devuelve sus jornadas
+          2. __EVENTTARGET=jornadasDropDownList -> fija cada jornada y lista sus partidos
+
+        Una liga regular tiene 26 jornadas x ~7 partidos = ~182 por grupo.
         """
-        url = f"{self.base_url}/resultados.aspx?g={competition_id}&t={season_year}"
-        page = self._get(url)
+        url = self._results_url(competition_id, season_year)
+        base_html = self._get_html(url)
 
-        links: set = set()
-        for a in page.find_all('a', href=True):
-            href = a['href']
-            if 'Partido.aspx?p=' in href:
-                p_id = re.search(r'p=(\d+)', href)
-                if p_id:
-                    full_url = f"{self.base_url}/Partido.aspx?p={p_id.group(1)}"
-                    links.add(full_url)
+        group_html = self._postback(url, base_html, FIELD_GROUP, {
+            FIELD_SEASON: season_year,
+            FIELD_GROUP: group_id,
+        })
 
-        # Filtrar por grupo si es posible usando el nombre del grupo en el HTML
-        if group_id:
-            group_text_match = re.search(
-                rf'<option[^>]*value="{group_id}"[^>]*>([^<]*)</option>', page.text)
-            if not group_text_match:
-                # Grupo no encontrado en la página, retornar todos igual
-                pass
+        journeys = [value for value, _ in self._select_options(group_html, 'jornadas')]
+        if not journeys:
+            logger.warning(
+                f"Grupo {group_id} ({season_year}): sin jornadas en el selector, "
+                f"se usan los partidos de la pagina del grupo")
+            return [f"{self.base_url}/Partido.aspx?p={gid}"
+                    for gid in self._extract_game_ids(group_html)]
 
         if max_journeys:
-            # Limitar al número máximo de jornadas solicitadas
-            # Tomar los primeros N enlaces donde N = max_journeys * ~8 partidos por jornada
-            max_links = max_journeys * 8
-            ordered = sorted(links)[:max_links]
-            links = list(dict.fromkeys(ordered))[:max_journeys * 8]
+            journeys = journeys[:max_journeys]
 
-        return list(links)
+        game_ids: Dict[str, None] = {}
+        for index, journey_id in enumerate(journeys, 1):
+            try:
+                journey_html = self._postback(url, group_html, FIELD_JOURNEY, {
+                    FIELD_SEASON: season_year,
+                    FIELD_GROUP: group_id,
+                    FIELD_JOURNEY: journey_id,
+                })
+            except requests.RequestException as e:
+                logger.warning(f"Jornada {index}/{len(journeys)} grupo {group_id}: {e}")
+                continue
+            found = self._extract_game_ids(journey_html)
+            logger.debug(f"Jornada {index}/{len(journeys)}: {len(found)} partidos")
+            for gid in found:
+                game_ids[gid] = None
+
+        logger.info(f"Grupo {group_id} ({season_year}): {len(journeys)} jornadas, "
+                    f"{len(game_ids)} partidos unicos")
+        return [f"{self.base_url}/Partido.aspx?p={gid}" for gid in game_ids]
     
     def _safe_int(self, text: str, default: int = 0) -> int:
         try:
@@ -295,23 +429,11 @@ class FEBBasketballScraper:
         shots = []
         team_stats = {}
         if include_api:
-            token = self._get_bearer_token()
-            if token:
-                try:
-                    keyfacts = self.get_api_data('KeyFacts', game_id, token)
-                    play_by_play = keyfacts.get('PLAYBYPLAY', {}).get('LINES', [])
-                except Exception as e:
-                    logger.warning(f"No se pudo obtener play-by-play: {e}")
-                try:
-                    shotchart = self.get_api_data('ShotChart', game_id, token)
-                    shots = shotchart.get('SHOTCHART', {}).get('SHOTS', [])
-                except Exception as e:
-                    logger.warning(f"No se pudo obtener shotchart: {e}")
-                try:
-                    teamstats = self.get_api_data('TeamStats', game_id, token)
-                    team_stats = teamstats.get('TEAMSTATS', {})
-                except Exception as e:
-                    logger.warning(f"No se pudo obtener team stats: {e}")
+            if self._get_bearer_token():
+                keyfacts = self._api_section(game_id, 'KeyFacts')
+                play_by_play = keyfacts.get('PLAYBYPLAY', {}).get('LINES', [])
+                shots = self._api_section(game_id, 'ShotChart').get('SHOTCHART', {}).get('SHOTS', [])
+                team_stats = self._api_section(game_id, 'TeamStats').get('TEAMSTATS', {})
 
         return Game(
             id=game_id,
