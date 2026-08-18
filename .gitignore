@@ -31,3 +31,6 @@ logs/
 
 # Secret files
 secrets/
+
+# Claude Code local settings
+.claude/settings.local.json
