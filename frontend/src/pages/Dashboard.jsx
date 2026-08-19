@@ -75,7 +75,7 @@ export function PageHead({ meta, catalogo, contexto, onChange }) {
           {meta.competition} · {meta.group}
         </h1>
         <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>
-          Temporada {meta.season} · {meta.journeys} jornadas con datos
+          Temporada {meta.season} · {meta.matchDays} fechas con partidos
         </p>
       </div>
       <ContextPicker catalogo={catalogo} contexto={contexto} onChange={onChange} />
@@ -213,7 +213,7 @@ export default function Dashboard({ context = {}, onNavigate, onContextChange, o
       />
 
       <div className="grid grid--kpi-4" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', marginBottom: 24 }}>
-        <StatTile label="Partidos" value={integer(summary.games)} note={`de ${meta.groupTotalGames} cargados`} />
+        <StatTile label="Partidos" value={integer(summary.games)} note={`en ${meta.matchDays} fechas`} />
         <StatTile label="Equipos" value={integer(summary.teams)} note={meta.group} />
         <StatTile label="Jugadores" value={integer(summary.players)} note="con minutos registrados" />
         <StatTile label="Tiros localizados" value={integer(summary.shots)} note="con coordenadas x/y" />

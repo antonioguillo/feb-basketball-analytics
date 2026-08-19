@@ -43,7 +43,7 @@ def _rows_for(sql: str, params):
     if "GROUP BY competition ORDER BY" in sql:
         return [{"competition": COMPETITION}]
     if "groupUniqArray(`group`) AS lista" in sql:
-        return [{"partidos": "175", "jornadas": "9", "lista": ["E-A"]}]
+        return [{"partidos": "175", "fechas": "9", "lista": ["E-A"]}]
     if "GROUP BY competition, year" in sql:
         return [{"competition": COMPETITION, "year": "2025",
                  "grupos": ["E-A"], "partidos": "175"}]
@@ -126,7 +126,7 @@ class ApiContractTest(unittest.TestCase):
         self.assertLessEqual({"meta", "summary", "leaders", "recentGames"}, set(result))
         self.assertEqual(set(result["summary"]), set(FIXTURES["summary"]))
         for key in ("competition", "season", "seasonKey", "group", "groupKey",
-                    "journeys", "groupTotalGames"):
+                    "matchDays", "groupTotalGames"):
             self.assertIn(key, result["meta"], f"falta meta.{key}")
         self.assertEqual(result["meta"]["season"], "2025/2026")
 

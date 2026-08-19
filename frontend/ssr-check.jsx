@@ -153,7 +153,14 @@ const cases = [
   ['signed negativo', signed(-2.15), '-2.1'],
   ['integer', integer(8800), '8.800'],
   ['teamName', teamName('CB MORVEDRE'), 'CB Morvedre'],
-  ['teamName acento', teamName('FUNDACIÓ CAIXA RURAL VILA-REAL'), 'Fundació Caixa Rural Vila-real'],
+  // Capitalizar tras guion acierta en la mayoría de nombres del catálogo
+  // (patrón patrocinador-localidad, "Rigalli-Alginet"). Vila-real es una
+  // excepción ortográfica del topónimo que se asume a conciencia.
+  ['teamName guion', teamName('RIGALLI-ALGINET'), 'Rigalli-Alginet'],
+  ['teamName apostrofo', teamName("SOCAGE JOVENS L'ELIANA"), "Socage Jovens L'Eliana"],
+  ['teamName sigla con punto', teamName('C.A. MONTEMAR'), 'C.A. Montemar'],
+  ['teamName sigla sin vocales', teamName('CMG HIDRÁULICA NB TORRENT'), 'CMG Hidráulica NB Torrent'],
+  ['teamName palabra corta con vocal', teamName('THE FITZGERALD EL PILAR'), 'The Fitzgerald El Pilar'],
   ['barWidth tope', String(barWidth(50, 10)), '100'],
   ['barWidth sin max', String(barWidth(5, 0)), '0'],
 ];
@@ -176,7 +183,7 @@ for (const clave of ['meta', 'summary', 'leaders', 'leadersTotal', 'recentGames'
                      'competitions', 'players']) {
   if (!(clave in fixtures)) problems.push(`fixtures: falta "${clave}"`);
 }
-for (const clave of ['competitionKey', 'seasonKey', 'groups', 'journeys']) {
+for (const clave of ['competitionKey', 'seasonKey', 'groups', 'matchDays']) {
   if (!(clave in fixtures.meta)) problems.push(`fixtures.meta: falta "${clave}"`);
 }
 if (!('group' in leader)) problems.push('fixtures.leaders: falta "group"');

@@ -41,7 +41,8 @@ export function Identity({ player, meta }) {
               <span style={{ color: 'var(--ink)' }}>{teamName(player.team)}</span>
               <span style={{ color: 'var(--faint)' }}>·</span>
               <span>
-                {meta.competition}, Grupo {meta.groupKey}
+                {meta.competition}
+                {player.group ? `, grupo ${player.group}` : ''}
               </span>
               <span style={{ color: 'var(--faint)' }}>·</span>
               <span>{meta.season}</span>

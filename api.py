@@ -243,7 +243,7 @@ async def _contexto(competition: Optional[str], season: Optional[str],
 
     where, params = _filtro(competition, season, group)
     resumen = await ch_one(
-        f"SELECT count() AS partidos, uniqExact(game_date) AS jornadas, "
+        f"SELECT count() AS partidos, uniqExact(game_date) AS fechas, "
         f"       groupUniqArray(`group`) AS lista "
         f"FROM feb.partidos WHERE {where}", params)
 
@@ -271,7 +271,9 @@ async def _contexto(competition: Optional[str], season: Optional[str],
             "group": group or (grupos[0] if len(grupos) == 1 else f"{len(grupos)} grupos"),
             "groupKey": group,
             "groups": sorted(grupos),
-            "journeys": _num(resumen.get("jornadas"), int),
+            # Fechas distintas con partidos, no jornadas: la jornada no viene en
+            # el acta, y con varios grupos cada uno juega en días distintos.
+            "matchDays": _num(resumen.get("fechas"), int),
             "groupTotalGames": _num(resumen.get("partidos"), int),
             "source": "feb.es",
         },

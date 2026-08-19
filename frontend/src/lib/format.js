@@ -1,6 +1,29 @@
 /** Formato de números y nombres tal y como se presentan en la interfaz. */
 
-const SMALL_WORDS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'i', 'a', 'b', 'ca']);
+// Solo las partículas de enlace van en minúscula. "El" y "La" no entran: en un
+// nombre de club suelen ser parte del propio nombre ("El Pilar", "La Salle").
+const CONECTORES = new Set(['de', 'del', 'y', 'i', 'da', 'do']);
+
+const VOCALES = /[aeiouáéíóúàèìòùäëïöüy]/i;
+
+/**
+ * Distingue una sigla de una palabra corta.
+ *
+ * La regla anterior era "cuatro letras o menos, en mayúsculas", y convertía
+ * THE en "THE" y GIL en "GIL". Una sigla no tiene vocales (CB, NB, CMG) o
+ * lleva puntos (C.B., C.A.).
+ */
+function esSigla(palabra) {
+  if (palabra.includes('.')) return true;
+  const letras = palabra.replace(/[^\p{L}]/gu, '');
+  return letras.length > 0 && letras.length <= 4 && !VOCALES.test(letras);
+}
+
+/** Capitaliza también tras guion y apóstrofo: l'eliana -> L'Eliana. */
+function capitalizarSegmentos(palabra) {
+  return palabra.replace(/(^|[-'’])(\p{L})/gu,
+    (_, separador, letra) => separador + letra.toLocaleUpperCase('es-ES'));
+}
 
 /** Un decimal fijo: 13.8, 8.0. Las medias siempre se leen con la misma precisión. */
 export function decimal(value, digits = 1) {
@@ -46,13 +69,12 @@ export function madeOfAttempts(made, attempts) {
 export function teamName(raw) {
   if (!raw) return '';
   return raw
-    .toLocaleLowerCase('es-ES')
-    .split(' ')
-    .map((word, index) => {
-      const bare = word.replace(/[.\-]/g, '');
-      if (bare.length <= 3 && !SMALL_WORDS.has(bare)) return word.toLocaleUpperCase('es-ES');
-      if (index > 0 && SMALL_WORDS.has(bare)) return word;
-      return word.charAt(0).toLocaleUpperCase('es-ES') + word.slice(1);
+    .split(/\s+/)
+    .map((palabra, indice) => {
+      if (esSigla(palabra)) return palabra.toLocaleUpperCase('es-ES');
+      const minuscula = palabra.toLocaleLowerCase('es-ES');
+      if (indice > 0 && CONECTORES.has(minuscula)) return minuscula;
+      return capitalizarSegmentos(minuscula);
     })
     .join(' ');
 }
