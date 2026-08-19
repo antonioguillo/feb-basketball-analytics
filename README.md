@@ -357,6 +357,12 @@ npm run build    # dist/
 npm run check    # render de los componentes con datos reales, sin navegador
 ```
 
+La interfaz permite elegir **competición, temporada y grupo**; las opciones
+salen de `/api/competitions`, así que solo se ofrece lo que hay cargado. La
+selección viaja en la ruta (`#/?competition=tercerafeb&season=2025`), de modo
+que se puede compartir por enlace y sobrevive a recargar. Los líderes se
+paginan de diez en diez.
+
 `npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
 `VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
 ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
@@ -581,15 +587,27 @@ Los diseños de origen están en `design/` (`*.dc.html` + `canvas.json`).
 ## Tests
 
 ```bash
-python -m unittest discover -s tests -v   # scraper, pipeline y contrato de la API
-cd frontend && npm run check              # componentes de la interfaz
+python -m unittest discover -s tests -v   # scraper, pipeline, contrato e integración
+cd frontend && npm run check              # interfaz, incluidas las dos pantallas
 ```
 
 | Fichero | Qué cubre |
 |---|---|
 | `tests/test_scraper_parsing.py` | el recorrido de jornadas del WebForm, sin red |
 | `tests/test_pipeline_local.py` | ejecuta bronze → silver → gold **de verdad** sobre dos partidos reales en disco local, y comprueba que el marcador reconstruido coincide con el acta |
-| `tests/test_api_contract.py` | que la API devuelve exactamente las claves que consume el frontend, con un ClickHouse simulado |
+| `tests/test_api_contract.py` | que la API devuelve las claves que consume el frontend, con un ClickHouse simulado |
+| `tests/test_api_integracion.py` | ejecuta la API contra ClickHouse si está levantado: valida el SQL de verdad, que no se mezclen competiciones y que la paginación no solape |
+| `frontend/npm run check` | renderiza fuera del navegador las piezas de ambas pantallas con los datos de ejemplo, y comprueba que estos mantienen la forma de la API |
+
+Los datos de ejemplo del frontend **se generan desde la API**, no a mano:
+
+```bash
+python scripts/generar_fixtures.py          # requiere ClickHouse con datos
+python scripts/generar_fixtures.py --competition lfendesa --season 2024
+```
+
+Escribirlos a mano los condena a desfasarse, y entonces el modo sin conexión
+enseña una forma distinta justo cuando menos conviene una sorpresa.
 
 > `test_pipeline_local.py` necesita `pyspark` y una JVM. En Windows se salta
 > solo: Hadoop no puede usar el sistema de ficheros local sin `winutils.exe`.

@@ -84,13 +84,24 @@ export function LabelledBar({ label, value, display, detail }) {
   );
 }
 
-/** Selector de filtro. Sin lógica todavía: refleja el estado actual del conjunto. */
-export function FilterChip({ children }) {
+/**
+ * Selector con aspecto de chip.
+ *
+ * Es un `<select>` real, no un adorno: se abre con el teclado, lo anuncian los
+ * lectores de pantalla y su etiqueta va asociada aunque no se vea.
+ */
+export function Select({ label, value, options, onChange, disabled = false }) {
   return (
-    <span className="chip">
-      {children}
+    <label className={`chip chip--select${disabled ? ' is-disabled' : ''}`}>
+      <span className="sr-only">{label}</span>
+      <select value={value ?? ''} onChange={(event) => onChange(event.target.value)}
+              disabled={disabled} aria-label={label}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
       <ChevronDown />
-    </span>
+    </label>
   );
 }
 

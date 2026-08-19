@@ -7,7 +7,7 @@ import ShotChart, { ShotLegend } from '../components/ShotChart.jsx';
 import { ZONE_ORDER, ZONE_LABEL } from '../lib/court.js';
 import { decimal, percent, signed, madeOfAttempts, teamName } from '../lib/format.js';
 
-function Identity({ player, meta }) {
+export function Identity({ player, meta }) {
   return (
     <div className="panel" style={{ marginBottom: 24 }}>
       <div
@@ -56,7 +56,7 @@ function Identity({ player, meta }) {
   );
 }
 
-function ShootingPanel({ shooting, totals }) {
+export function ShootingPanel({ shooting, totals }) {
   const cells = [
     { label: 'Tiros de 2', pct: shooting.t2, detail: madeOfAttempts(totals.t2m, totals.t2a) },
     { label: 'Triples', pct: shooting.t3, detail: madeOfAttempts(totals.t3m, totals.t3a) },
@@ -107,7 +107,7 @@ function ShootingPanel({ shooting, totals }) {
   );
 }
 
-function AdvancedRow({ name, note, value, emphasis }) {
+export function AdvancedRow({ name, note, value, emphasis }) {
   return (
     <div className="row" style={{ justifyContent: 'space-between', gap: 16 }}>
       <div>
@@ -124,7 +124,7 @@ function AdvancedRow({ name, note, value, emphasis }) {
   );
 }
 
-function GameLog({ games, maxVal }) {
+export function GameLog({ games, maxVal }) {
   return (
     <Panel title="Partido a partido">
       <div className="table--scroll-sm" style={{ marginTop: 20 }}>
@@ -165,7 +165,7 @@ function GameLog({ games, maxVal }) {
   );
 }
 
-export default function Player({ slug, meta, context, onSource }) {
+export default function Player({ slug, context, onSource }) {
   const { status, data, source, error, retry } = useResource(
     () => getPlayer(slug, context), [slug, context?.competition, context?.season, context?.group]);
 
@@ -185,9 +185,9 @@ export default function Player({ slug, meta, context, onSource }) {
   }
 
   const player = data;
-  // La cabecera se pinta con el `meta` que trae la respuesta, que describe la
-  // competición realmente servida; el prop solo es el valor por defecto.
-  const cabecera = player.meta ?? meta;
+  // La cabecera la describe la propia respuesta: dice de qué competición y
+  // temporada son los datos que se están mostrando.
+  const cabecera = player.meta;
   const madeShots = player.shots.filter((shot) => shot.made).length;
 
   return (

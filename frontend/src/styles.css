@@ -201,6 +201,50 @@ button {
   border-color: var(--faint);
 }
 
+/* El <select> hereda el aspecto del chip; la flecha la dibuja el icono. */
+.chip--select {
+  padding-right: 10px;
+  cursor: pointer;
+}
+
+.chip--select select {
+  appearance: none;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+}
+
+.chip--select select option {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.chip--select:focus-within {
+  border-color: var(--accent);
+}
+
+.chip--select.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Visible solo para lectores de pantalla. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .chip--primary {
   background: var(--accent);
   border-color: var(--accent);

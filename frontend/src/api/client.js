@@ -28,20 +28,6 @@
 const BASE = import.meta.env.VITE_API_BASE ?? '/api';
 const TIMEOUT_MS = 8000;
 
-/**
- * Contexto de la competición mostrada. Sirve de encabezado de la ficha de
- * jugador sin pedir otra vez el dashboard; si `/api/players/<slug>` devuelve su
- * propio `meta`, ese tiene prioridad.
- */
-export const DEFAULT_CONTEXT = {
-  competition: 'Tercera FEB',
-  competitionKey: 'tercerafeb',
-  season: '2025/2026',
-  seasonKey: '2025',
-  group: 'Liga Regular E-A',
-  groupKey: 'E-A',
-};
-
 let fixturesPromise = null;
 function loadFixtures() {
   if (!fixturesPromise) {
@@ -92,10 +78,14 @@ function queryString(params) {
 export function getDashboard({ competition, season, group, limit, offset } = {}) {
   const suffix = queryString({ competition, season, group, limit, offset });
 
+  // Los datos de ejemplo describen una sola competición: si se pide otra, se
+  // devuelven igualmente los que hay, y la interfaz ya avisa de que no son vivos.
   return withFallback(`/dashboard${suffix}`, (fixtures) => ({
     meta: fixtures.meta,
     summary: fixtures.summary,
-    leaders: fixtures.leaders,
+    leaders: fixtures.leaders.slice(offset ?? 0, (offset ?? 0) + (limit ?? fixtures.leaders.length)),
+    leadersTotal: fixtures.leadersTotal ?? fixtures.leaders.length,
+    leadersOffset: offset ?? 0,
     recentGames: fixtures.recentGames,
   }));
 }
@@ -111,14 +101,7 @@ export function getPlayer(slug, { competition, season, group } = {}) {
 /** Competiciones, temporadas y grupos con datos cargados. */
 export function getCompetitions() {
   return withFallback('/competitions', (fixtures) => ({
-    competitions: [{
-      competitionKey: fixtures.meta.competitionKey,
-      competition: fixtures.meta.competition,
-      seasonKey: fixtures.meta.seasonKey,
-      season: fixtures.meta.season,
-      groups: [fixtures.meta.groupKey],
-      games: fixtures.summary.games,
-    }],
+    competitions: fixtures.competitions,
   }));
 }
 

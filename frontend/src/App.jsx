@@ -4,7 +4,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import PlayerPage from './pages/Player.jsx';
 import { ErrorState } from './components/Primitives.jsx';
 import { useRoute, useNavigate, href } from './lib/router.js';
-import { DEFAULT_CONTEXT } from './api/client.js';
 
 export default function App() {
   const route = useRoute();
@@ -13,6 +12,10 @@ export default function App() {
 
   const openPlayer = useCallback(
     (slug, context) => navigate(href.player(slug, context).slice(1)), [navigate]);
+  // Cambiar competición, temporada o grupo se refleja en la ruta, así que el
+  // estado se puede compartir por enlace y sobrevive a recargar la página.
+  const cambiarContexto = useCallback(
+    (context) => navigate(href.dashboard(context).slice(1)), [navigate]);
   const handleSource = useCallback((value) => setSource(value), []);
 
   let page;
@@ -20,12 +23,18 @@ export default function App() {
 
   if (route.name === 'dashboard') {
     activeNav = 'dashboard';
-    page = <Dashboard onNavigate={openPlayer} onSource={handleSource} />;
+    page = (
+      <Dashboard
+        context={route.context}
+        onNavigate={openPlayer}
+        onContextChange={cambiarContexto}
+        onSource={handleSource}
+      />
+    );
   } else if (route.name === 'player') {
     activeNav = 'players';
     page = (
-      <PlayerPage slug={route.slug} meta={DEFAULT_CONTEXT}
-                  context={route.context} onSource={handleSource} />
+      <PlayerPage slug={route.slug} context={route.context} onSource={handleSource} />
     );
   } else {
     activeNav = null;
