@@ -214,7 +214,7 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
             existing = store.existing_game_ids(competition=competition_name)
             print(f"Partidos ya en raw para {competition_name}: {len(existing)}")
 
-    scraped = skipped = failed = 0
+    scraped = skipped = failed = pending = 0
     for season in seasons:
         try:
             groups = scraper.get_groups(competition.id, season)
@@ -242,8 +242,7 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
             for url in links:
                 if limit is not None and scraped >= limit:
                     print(f"\nLímite de {limit} partidos alcanzado.")
-                    print(f"Resumen: {scraped} scrapeados, {skipped} omitidos, {failed} fallidos")
-                    return
+                    return _resumen(competition_name, scraped, skipped, pending, failed)
 
                 game_id = re.search(r'(?:partido/|p=)(\d+)', url).group(1)
                 if game_id in existing:
@@ -254,6 +253,15 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
                     if not game:
                         failed += 1
                         continue
+
+                    # Un partido sin estadísticas de jugador todavía no se ha
+                    # jugado (o la FEB aún no ha publicado el acta). No se sube:
+                    # si se subiera, quedaría en raw como "ya hecho" y no se
+                    # volvería a bajar nunca cuando se dispute.
+                    if not (game.home_stats or game.away_stats):
+                        pending += 1
+                        continue
+
                     if store:
                         store.upload_game(game, competition=competition_name,
                                           year=season, group=slug)
@@ -265,8 +273,61 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
                     print(f"    partido {game_id}: ERROR {str(e)[:100]}")
                     failed += 1
 
-    print(f"\nResumen histórico {competition_name}: "
-          f"{scraped} scrapeados, {skipped} omitidos, {failed} fallidos")
+    return _resumen(competition_name, scraped, skipped, pending, failed)
+
+
+def _resumen(competition_name, scraped, skipped, pending, failed):
+    print(f"\nResumen {competition_name}: {scraped} nuevos, {skipped} ya en raw, "
+          f"{pending} sin jugar todavía, {failed} fallidos")
+    return {"scraped": scraped, "skipped": skipped, "pending": pending, "failed": failed}
+
+
+def actualizar(seasons: list = None, competitions: list = None, delay: float = 1.0,
+               limit: int = None, include_playoffs: bool = False):
+    """Descarga lo que falte de una temporada, para ejecutar de forma recurrente.
+
+    Pensado para la temporada en curso: recorre las competiciones absolutas,
+    omite lo que ya está en raw y baja únicamente los partidos nuevos. Los que
+    todavía no se han jugado no se guardan, así que la siguiente ejecución los
+    recoge en cuanto la FEB publique el acta.
+
+    Es seguro repetirlo: no reescribe nada de lo ya descargado.
+    """
+    from src.models import SENIOR_COMPETITIONS
+
+    competitions = competitions or SENIOR_COMPETITIONS
+    seasons = seasons or [_temporada_en_curso()]
+    print(f"Actualizando temporadas {seasons} · competiciones: {', '.join(competitions)}")
+
+    totales = {"scraped": 0, "skipped": 0, "pending": 0, "failed": 0}
+    for name in competitions:
+        if name not in COMPETITIONS:
+            print(f"  competición desconocida, se omite: {name}")
+            continue
+        print(f"\n=== {COMPETITIONS[name].name} ===")
+        resultado = scrape_historico(
+            name, seasons=seasons, upload_raw=True, delay=delay, limit=limit,
+            only_regular=not include_playoffs)
+        for key in totales:
+            totales[key] += (resultado or {}).get(key, 0)
+
+    print(f"\n{'=' * 52}")
+    print(f"TOTAL: {totales['scraped']} partidos nuevos, {totales['skipped']} ya estaban, "
+          f"{totales['pending']} sin jugar, {totales['failed']} fallidos")
+    if totales["pending"]:
+        print("Los partidos sin jugar se descargarán solos en la próxima ejecución.")
+    return totales
+
+
+def _temporada_en_curso() -> str:
+    """Año de inicio de la temporada actual.
+
+    La liga va de septiembre a mayo, así que de enero a agosto la temporada en
+    curso empezó el año anterior.
+    """
+    from datetime import date
+    today = date.today()
+    return str(today.year if today.month >= 9 else today.year - 1)
 
 
 def _flag_value(argv, flag, cast=str, default=None):
@@ -278,6 +339,18 @@ def _flag_value(argv, flag, cast=str, default=None):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == 'actualizar':
+        seasons_arg = _flag_value(sys.argv, '--seasons')
+        comps_arg = _flag_value(sys.argv, '--competitions')
+        actualizar(
+            seasons=seasons_arg.split(',') if seasons_arg else None,
+            competitions=comps_arg.split(',') if comps_arg else None,
+            delay=_flag_value(sys.argv, '--delay', float, 1.0),
+            limit=_flag_value(sys.argv, '--limit', int),
+            include_playoffs='--all-groups' in sys.argv,
+        )
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == 'historico':
         competition_name = sys.argv[2] if len(sys.argv) > 2 else 'tercerafeb'
         seasons_arg = _flag_value(sys.argv, '--seasons')

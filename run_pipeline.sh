@@ -13,6 +13,8 @@
 #   ./run_pipeline.sh gold                     # ejecuta el job gold
 #   ./run_pipeline.sh export                   # gold/silver Delta -> staging parquet
 #   ./run_pipeline.sh clickhouse               # carga staging en ClickHouse
+#   ./run_pipeline.sh backfill [temporadas]    # histórico inicial de las absolutas
+#   ./run_pipeline.sh actualizar               # baja lo que falte de la temporada en curso
 #   ./run_pipeline.sh api                      # levanta la API REST (puerto 8000)
 #   ./run_pipeline.sh front                    # levanta el frontend (puerto 3000)
 #   ./run_pipeline.sh vacuum                   # VACUUM Delta (mantenimiento opcional)
@@ -189,6 +191,15 @@ case "$cmd" in
         ./run_pipeline.sh clickhouse
         echo "Pipeline de competición completado."
         ;;
+    actualizar)
+        shift
+        echo "Actualizando la temporada en curso..."
+        ./scripts/actualizar_temporada.sh "$@"
+        ;;
+    backfill)
+        echo "Descargando el histórico de las competiciones absolutas..."
+        ./scripts/backfill_historico.sh "${2:-2021,2022,2023,2024,2025}" "${3:-}"
+        ;;
     api)
         echo "Levantando la API en http://localhost:8000 (docs en /docs)..."
         source venv/bin/activate
@@ -202,6 +213,6 @@ case "$cmd" in
         docker compose down
         ;;
     *)
-        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|historico|bronze|silver|gold|export|clickhouse|api|front|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
+        echo "Uso: ./run_pipeline.sh {up|scrap|liga|grupo-e|historico|backfill|actualizar|bronze|silver|gold|export|clickhouse|api|front|vacuum|all|liga-all|down} [game_id|comp] [--limit N] [--force]"
         ;;
 esac

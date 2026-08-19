@@ -64,6 +64,60 @@ pip install -r requirements.txt
 ./run_pipeline.sh down         # apaga todo
 ```
 
+## Cobertura del histórico
+
+Medido contra feb.es en agosto de 2026. Las seis categorías **absolutas** son
+las que alimentan el scouting; se comprobó una muestra por competición y
+temporada y **todas devuelven play-by-play y carta de tiros**, también en 2021:
+
+| Competición | `g=` | Grupos de liga regular | Jornadas | Partidos/temporada |
+|---|---|---|---|---|
+| Primera FEB | 1 | 1 | 34 | ~300 |
+| Segunda FEB | 2 | 2 | 26 | ~364 |
+| Tercera FEB | 3 | 10-11 | 26-30 | ~1.820 |
+| LF Endesa | 4 | 1 | 30 | ~240 |
+| L.F.-2 | 9 | 2 | 26 | ~364 |
+| LF Challenge | 67 | 1 | 30 | ~240 |
+
+**Total liga regular 2021-2025: ~17.400 partidos**, unas 5,8 h de scraping
+secuencial y ~0,8 GB en la capa raw.
+
+El catálogo completo de `src/models.py` tiene 24 competiciones, incluidas las
+copas (`copa`) y las categorías de formación (`base`). Estas últimas no se
+descargan por defecto.
+
+### Descarga inicial
+
+```bash
+./run_pipeline.sh up                       # imprescindible: raw vive en MinIO
+./run_pipeline.sh backfill                 # 2021-2025, las seis absolutas
+./run_pipeline.sh backfill 2024,2025       # solo unas temporadas
+./run_pipeline.sh backfill 2025 tercerafeb # una competición
+```
+
+Se puede cortar y reanudar: lo ya descargado se omite.
+
+### Mantener la temporada al día
+
+```bash
+./run_pipeline.sh actualizar               # temporada en curso + reconstruye las capas
+./scripts/actualizar_temporada.sh --solo-scraping
+```
+
+En cron, los lunes a las 4:00:
+
+```cron
+0 4 * * 1 cd /ruta/al/proyecto && ./scripts/actualizar_temporada.sh >> logs/actualizar.log 2>&1
+```
+
+La temporada en curso se deduce de la fecha (de septiembre a mayo), así que el
+script no hay que tocarlo al cambiar de año.
+
+> **Los partidos aún no jugados no se guardan.** Si se guardaran vacíos, la
+> comprobación de idempotencia los daría por hechos y no volverían a bajarse
+> nunca al disputarse. Se cuentan como «sin jugar» y la siguiente ejecución los
+> recoge en cuanto la FEB publica el acta.
+
 ### Histórico completo (recomendado)
 
 `historico` descubre en la propia web los grupos de cada temporada y recorre
@@ -107,7 +161,8 @@ Es idempotente: consulta los `game_id` ya en raw y los omite salvo `--force`.
 python main.py liga primerafeb --upload
 ```
 
-> Los partidos aún no jugados (fixtures) se suben a raw sin stats y no rompen el pipeline.
+> Ojo: el comando antiguo `liga` sí sube a raw los partidos sin jugar. Usa
+> `backfill` / `actualizar`, que los dejan pendientes para la siguiente pasada.
 
 ### Grupo E - Tercera FEB / antigua Liga EBA (4 temporadas)
 
@@ -152,10 +207,21 @@ Credenciales MinIO/S3: `minioadmin` / `minioadmin`. Consola: http://localhost:90
 ## Capas de datos (medallion)
 
 ### raw (MinIO `raw/`)
-```json
-raw/competition=<comp>/year=<año>/game_id=<id>.json
+
+Un objeto JSON por partido, particionado por **competición, temporada y grupo**:
+
 ```
-Contiene: ficha del partido, `players` (locales y visitantes), `play_by_play`, `shots` (coordenadas x/y), `team_stats`.
+raw/competition=tercerafeb/year=2025/group=E-A/game_id=2484526.json
+raw/competition=lfendesa/year=2024/group=Unico/game_id=2412372.json
+raw/competition=segundafeb/year=2023/group=ESTE/game_id=2345035.json
+```
+
+La clave de competición es la misma que usa la web en su parámetro `nm=`, y el
+grupo sale del nombre del selector (`Liga Regular "E-A"` → `E-A`). Así se puede
+reprocesar una liga o un grupo sueltos sin tocar el resto.
+
+Cada fichero contiene: ficha del partido (`meta`), `players_home` y
+`players_away`, `play_by_play`, `shots` (coordenadas x/y) y `team_stats`.
 
 ### bronze (MinIO `bronze/`, Delta)
 - `bronze_games`: game_id, date, venue, home_team, away_team, home_score, away_score, group
