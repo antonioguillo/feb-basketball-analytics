@@ -109,12 +109,12 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
                    seasons: list = None, max_journeys: int = None):
     """Escanea el grupo E de la Tercera FEB / Liga EBA en las últimas temporadas.
 
-    Por cada temporada y subgrupo (E-A, E-B) obtiene los partidos iterando por
-    todas las jornadas, los scrapea (ficha + API interna) y los sube a raw con:
-        competition=tercerafeb_e/year=<season>/group=<E-A|E-B>/game_id=<id>.json
+    SUPERADO por `historico` y `actualizar`, que descubren los grupos en la
+    propia web en vez de depender de la tabla EBA_GROUP_E. Se mantiene porque
+    fue lo que descargó el histórico inicial del grupo E.
 
-    Los partidos se guardan incluso si la API interna falla (solo se conserva
-    la ficha del partido).
+    Sube a la misma taxonomía que el resto:
+        competition=tercerafeb/year=<season>/group=<E-A|E-B>/game_id=<id>.json
     """
     seasons = seasons or sorted(EBA_GROUP_E.keys())
     print(f"Escaneando Grupo E - Tercera FEB/Liga EBA: temporadas {seasons}")
@@ -129,7 +129,7 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
     existing = {}
     if store and not force:
         existing = {k.rsplit("/", 1)[-1].replace("game_id=", "").replace(".json", "")
-                    for k in store.list_games(competition="tercerafeb_e")}
+                    for k in store.list_games(competition="tercerafeb")}
 
     total_scraped = total_skipped = total_failed = 0
     global_done = 0
@@ -167,7 +167,7 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
                     global_done += 1
                     if upload_raw:
                         key = store.upload_game(
-                            game, competition="tercerafeb_e", year=season, group=group_name)
+                            game, competition="tercerafeb", year=season, group=group_name)
                         print(f"Partido {game_id}: {game.home_team} {game.home_score}-{game.away_score} {game.away_team} -> raw ({key})")
                     else:
                         print(f"Partido {game_id}: {game.home_team} {game.home_score}-{game.away_score} {game.away_team}")

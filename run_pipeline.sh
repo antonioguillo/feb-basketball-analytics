@@ -60,6 +60,7 @@ sync_jobs() {
     docker cp jobs/spark_silver.py feb-spark-master:/opt/jobs/spark_silver.py
     docker cp jobs/spark_gold.py feb-spark-master:/opt/jobs/spark_gold.py
     docker cp jobs/export_clickhouse.py feb-spark-master:/opt/jobs/export_clickhouse.py
+    docker cp jobs/vacuum_delta.py feb-spark-master:/opt/jobs/vacuum_delta.py
 }
 
 run_spark() {
@@ -79,38 +80,6 @@ run_spark() {
         --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
         --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog \
         /opt/jobs/${job} "$MINIO" "$ACCESS" "$SECRET"
-}
-
-vacuum() {
-    # Elimina archivos parquet obsoletos de las tablas Delta (los overwrite los dejan en disco)
-    ensure_jars
-    cat > /tmp/vacuum_pipeline.py << 'PYEOF'
-from pyspark.sql import SparkSession
-from delta.tables import DeltaTable
-spark = (SparkSession.builder.appName('vacuum')
-  .config('spark.sql.extensions','io.delta.sql.DeltaSparkSessionExtension')
-  .config('spark.sql.catalog.spark_catalog','org.apache.spark.sql.delta.catalog.DeltaCatalog')
-  .config('spark.hadoop.fs.s3a.endpoint','http://minio:9000')
-  .config('spark.hadoop.fs.s3a.access.key','minioadmin')
-  .config('spark.hadoop.fs.s3a.secret.key','minioadmin')
-  .config('spark.hadoop.fs.s3a.path.style.access','true')
-  .config('spark.hadoop.fs.s3a.impl','org.apache.hadoop.fs.s3a.S3AFileSystem')
-  .config('spark.hadoop.fs.s3a.connection.ssl.enabled','false')
-  .config('spark.databricks.delta.retentionDurationCheck.enabled','false').getOrCreate())
-for t in ['bronze/games','bronze/players','bronze/playbyplay','bronze/shots','bronze/teamstats',
-          'silver/games','silver/players','silver/playbyplay','silver/shots','silver/teamstats',
-          'gold/dim_jugadores','gold/dim_equipos','gold/fact_partidos',
-          'gold/fact_equipo_estadisticas','gold/fact_tiros']:
-    try:
-        DeltaTable.forPath(spark, 's3a://'+t).vacuum(0)
-        print('vacuum OK', t)
-    except Exception as e:
-        print('vacuum ERR', t, str(e)[:80])
-PYEOF
-    docker cp /tmp/vacuum_pipeline.py feb-spark-master:/tmp/vacuum_pipeline.py
-    docker exec feb-spark-master /opt/spark/bin/spark-submit \
-        --master spark://spark-master:7077 \
-        --jars ${JARS} /tmp/vacuum_pipeline.py
 }
 
 case "$cmd" in
@@ -165,8 +134,8 @@ case "$cmd" in
         python jobs/load_clickhouse.py
         ;;
     vacuum)
-        echo "VACUUM de tablas Delta (mantenimiento, opcional)..."
-        vacuum
+        echo "VACUUM de tablas Delta (retira los ficheros de versiones anteriores)..."
+        run_spark vacuum_delta.py
         ;;
     all)
         ./run_pipeline.sh up

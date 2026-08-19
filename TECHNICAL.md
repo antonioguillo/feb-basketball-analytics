@@ -56,7 +56,7 @@ Entrada: scrapings HTTP a `www.feb.es`. Almacenamiento: `s3a://raw/`.
 **Estructura de paths:**
 ```
 competition=tercerafeb/year=2022/group=ungrouped/game_id=2274271.json
-competition=tercerafeb_e/year=2023/group=E-A/game_id=2274272.json
+competition=tercerafeb/year=2023/group=E-A/game_id=2274272.json
 competition=liga_femenina/year=2024/group=primary/game_id=...
 ```
 
@@ -119,11 +119,15 @@ como `EBA_GROUP_E` para cubrir una competición nueva.
 
 ### 2. Bronze Layer (Spark)
 
-Job: `jobs/spark_bronze.py`. Lee TODO `s3a://raw/` (incluye tercerafeb, tercerafeb_e, liga, copa) y escribe Delta partitionado por `year`.
+Job: `jobs/spark_bronze.py`. Lee las rutas particionadas de `s3a://raw/` y escribe Delta particionado por `competition` y `year`.
 
-**Extracción de año:**
-- Se extrae de `meta.date` (formato DD/MM/YYYY) usando `substring(col, 7, 4)`.
-- Esto funciona tanto para paths `competencia=tercerafeb/year=2022/...` como `competencia=tercerafeb_e/year=2025/...` porque el año viene del campo `meta.date` del JSON, no del path S3.
+**Temporada frente a año natural:**
+- `year` es la TEMPORADA y sale del propio path de raw, que Spark expone como
+  columna de partición.
+- Derivarla de `meta.date` era un error: una temporada va de octubre a mayo, así
+  que la 2025/2026 quedaba repartida entre `year=2025` y `year=2026` y cualquier
+  consulta por temporada perdía media liga.
+- El año natural se conserva aparte, en `bronze_games.calendar_year`.
 
 **Jobs bronze:**
 - `bronze_players` - stats de jugadores (28107 filas tras pipeline completo)
@@ -234,7 +238,7 @@ Detalle de implementación (scraper.py línea ~120):
 **Método: `scrape_game(game_id, delay)`**
 - Obtiene ficha del partido + llama a API interna para stats (play-by-play, shotchart, teamstats)
 - Manejo de errores: si API falla (404 = partido futuro), guarda solo la ficha del partido
-- Subida a raw: `raw_store.upload_game(group, ...)` con ruta `competition=tercerafeb_e/year=<season>/group=<E-A|E-B>/game_id=<id>.json`
+- Subida a raw: `raw_store.upload_game(group, ...)` con ruta `competition=tercerafeb/year=<season>/group=<E-A|E-B>/game_id=<id>.json`
 
 **Método auxiliar: `get_all_seasons_links(group_id, max_journeys=None)`**
 - Agrupa por temporada y subgrupo (E-A, E-B)
@@ -302,12 +306,12 @@ from collections import Counter
 s3 = boto3.client('s3', endpoint_url='http://localhost:9000', aws_access_key_id='minioadmin', aws_secret_access_key='minioadmin')
 pag = s3.get_paginator('list_objects_v2')
 total=0; by_season=Counter(); by_group=Counter()
-for pg in pag.paginate(Bucket='raw', Prefix='competition=tercerafeb_e/'):
+for pg in pag.paginate(Bucket='raw', Prefix='competition=tercerafeb/'):
     for o in pg.get('Contents',[]):
         k=o['Key']; total+=1
         parts={p.split('=')[0]:p.split('=')[1] for p in k.split('/') if '=' in p}
         by_season[parts.get('year','?')]+=1; by_group[parts.get('group','?')]+=1
-print('Total TerceraFEB_E en raw:', total)
+print('Total Tercera FEB en raw:', total)
 print('Por temporada:', dict(sorted(by_season.items())))
 print('Por grupo:', dict(sorted(by_group.items())))
 "

@@ -195,7 +195,7 @@ python main.py grupo-e --upload --seasons 2023,2024   # temporadas específicas
 ```
 
 Los partidos subidos a raw siguen la partición:
-`raw/competition=tercerafeb_e/year=<2022-2025>/group=<E-A|E-B>/game_id=<id>.json`
+`raw/competition=tercerafeb/year=<2022-2025>/group=<E-A|E-B>/game_id=<id>.json`
 
 Los datos de la API interna (play-by-play, tiros, stats) están disponibles incluso
 para partidos de 2022, por lo que se conserva información completa por encima de la ficha.
@@ -390,6 +390,25 @@ FEB_REBUILD=1 ./run_pipeline.sh bronze
 > octubre de 2025 y mayo de 2026; derivar el año de la fecha del partido partía
 > cada temporada en dos particiones. El año natural se conserva aparte en
 > `bronze_games.calendar_year`.
+
+### Mantenimiento del lago
+
+```bash
+./run_pipeline.sh vacuum                              # retira versiones antiguas de Delta
+python scripts/migrar_raw.py                          # plan de limpieza de raw
+python scripts/migrar_raw.py --apply
+python scripts/migrar_raw.py --limpiar-marcadores --apply
+```
+
+`scripts/migrar_raw.py` retira de raw lo que no encaja en el particionado
+—ficheros que no son partidos, fichas de encuentros sin jugar y claves ad-hoc
+como `partido_suelto` o `group=ungrouped`— y unifica taxonomías antiguas. Por
+defecto solo enseña el plan; lo que borra teniendo datos lo guarda antes en
+`data/backup_raw/`.
+
+`--limpiar-marcadores` retira los objetos de cero bytes que MinIO deja como
+carpetas: tras un VACUUM hacen creer que sigue habiendo datos de una
+competición ya retirada.
 
 ### Credenciales de ClickHouse
 
