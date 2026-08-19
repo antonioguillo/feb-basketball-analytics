@@ -44,10 +44,15 @@ if [ ! -d venv ]; then
     log "ERROR: falta el entorno virtual. Créalo con:  python3 -m venv venv && pip install -r requirements.txt"
     exit 1
 fi
-source venv/bin/activate
+# El venv del proyecto es de Linux; en Git Bash sobre Windows no se puede
+# activar y basta con el Python del sistema, que ya tiene las dependencias.
+if [ -f venv/bin/activate ] && [ -z "${OS:-}" ]; then
+    source venv/bin/activate
+fi
+PY_BIN="${PY_BIN:-python}"
 
 log "Descargando partidos nuevos de feb.es..."
-python main.py actualizar ${ARGS[@]+"${ARGS[@]}"}
+"$PY_BIN" main.py actualizar ${ARGS[@]+"${ARGS[@]}"}
 
 if [ "$SOLO_SCRAPING" -eq 1 ]; then
     log "Solo scraping: no se reconstruyen las capas."

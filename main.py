@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -262,6 +263,7 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
             print(f"Partidos ya en raw para {competition_name}: {len(existing)}")
 
     scraped = skipped = failed = pending = 0
+    inicio = time.monotonic()
     for season in seasons:
         try:
             groups = scraper.get_groups(competition.id, season)
@@ -284,7 +286,7 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
             except Exception as e:
                 print(f"  [{slug}] error listando partidos: {str(e)[:80]}")
                 continue
-            print(f"  [{slug}] {len(links)} partidos")
+            print(f"  [{slug}] {len(links)} partidos", flush=True)
 
             pendientes = [u for u in links
                           if re.search(r'(?:partido/|p=)(\d+)', u).group(1) not in existing]
@@ -306,8 +308,9 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
                                           year=season, group=slug)
                         existing.add(game_id)
                     scraped += 1
-                    if scraped % 50 == 0:
-                        print(f"    ... {scraped} descargados")
+                    if scraped % 100 == 0:
+                        ritmo = scraped / max(time.monotonic() - inicio, 1)
+                        print(f"    ... {scraped} descargados ({ritmo:.1f}/s)", flush=True)
             except RuntimeError as error:
                 print(f"    ERROR {str(error)[:120]}")
                 failed += 1

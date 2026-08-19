@@ -63,9 +63,14 @@ if ! curl -sf -o /dev/null --max-time 3 "http://localhost:9000/minio/health/live
     exit 1
 fi
 
-source venv/bin/activate
+# El venv del proyecto es de Linux; en Git Bash sobre Windows no se puede
+# activar y basta con el Python del sistema, que ya tiene las dependencias.
+if [ -f venv/bin/activate ] && [ -z "${OS:-}" ]; then
+    source venv/bin/activate
+fi
+PY_BIN="${PY_BIN:-python}"
 
-CMD=(python main.py actualizar --seasons "$SEASONS" --workers "$WORKERS" --delay "$DELAY")
+CMD=("$PY_BIN" main.py actualizar --seasons "$SEASONS" --workers "$WORKERS" --delay "$DELAY")
 [ -n "$COMPETICIONES" ] && CMD+=(--competitions "$COMPETICIONES")
 [ -n "$EXTRA" ] && CMD+=($EXTRA)
 

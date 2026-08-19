@@ -148,7 +148,12 @@ class FEBBasketballScraper:
                     logger.debug(f"Token caducado en {endpoint}, renovando")
                     self._get_bearer_token(refresh=True)
                     continue
-                logger.warning(f"{endpoint} partido {game_id}: HTTP {status}")
+                # Un 404 es el caso normal, no una anomalía: la API interna solo
+                # cubre de la temporada 2020 en adelante, y un partido antiguo
+                # no tiene play-by-play. Avisar de cada uno llenaría el registro
+                # de un backfill con cientos de miles de líneas sin valor.
+                logger.log(logging.DEBUG if status == 404 else logging.WARNING,
+                           f"{endpoint} partido {game_id}: HTTP {status}")
                 return {}
             except Exception as e:
                 logger.warning(f"{endpoint} partido {game_id}: {e}")
