@@ -27,7 +27,7 @@ app = FastAPI(
 
 CH_URL = os.getenv("CH_URL", "http://localhost:8123")
 CH_USER = os.getenv("CH_USER", "default")
-CH_PASSWORD = os.getenv("CH_PASSWORD", "")
+CH_PASSWORD = os.getenv("CH_PASSWORD", "feb")
 CH_TIMEOUT = float(os.getenv("CH_TIMEOUT", "30"))
 
 # Contexto de la competición que se está sirviendo. Hoy el pipeline carga un
@@ -55,7 +55,11 @@ async def ch_query(sql: str, params: Optional[Dict[str, Any]] = None) -> List[Di
     for key, value in (params or {}).items():
         query[f"param_{key}"] = str(value)
 
-    auth = (CH_USER, CH_PASSWORD) if CH_USER else None
+    # Sin contraseña, la imagen oficial de ClickHouse limita el usuario default
+    # a conexiones desde dentro del contenedor y responde a cualquier petición
+    # del host con un "Authentication failed" que despista. Por eso el compose
+    # fija una contraseña; aquí solo se manda la cabecera si existe.
+    auth = (CH_USER, CH_PASSWORD) if CH_PASSWORD else None
     try:
         async with httpx.AsyncClient(timeout=CH_TIMEOUT) as client:
             response = await client.post(CH_URL, params=query, auth=auth)
@@ -109,7 +113,12 @@ async def dashboard(
 ):
     """Resumen del grupo, ranking de líderes y últimos resultados."""
     if season is None:
-        latest = await ch_one("SELECT max(year) AS year FROM feb.partidos")
+        # La temporada con más partidos, no la más reciente: el lago puede tener
+        # unos pocos encuentros sueltos de una temporada que aún no ha empezado,
+        # y abrir el dashboard ahí daría un ranking vacío.
+        latest = await ch_one(
+            "SELECT year FROM feb.partidos GROUP BY year "
+            "ORDER BY count() DESC, year DESC LIMIT 1")
         season = str(latest.get("year") or "")
         if not season:
             raise HTTPException(status_code=404, detail="No hay partidos cargados")
@@ -137,24 +146,24 @@ async def dashboard(
             player_name,
             argMax(team, game_date)              AS team,
             count()                              AS games,
-            avg(minutes)                         AS min,
-            avg(points)                          AS pts,
-            avg(reb)                             AS reb,
-            avg(ast)                             AS ast,
-            avg(stl)                             AS stl,
-            avg(blk)                             AS blk,
-            avg(to)                              AS "to",
-            avg(val)                             AS val,
-            avg(plus_minus)                      AS plus_minus,
-            sum(t2m) AS t2m, sum(t2a) AS t2a,
-            sum(t3m) AS t3m, sum(t3a) AS t3a,
-            sum(ftm) AS ftm, sum(fta) AS fta,
+            avg(minutes)     AS avg_min,
+            avg(points)      AS avg_pts,
+            avg(reb)         AS avg_reb,
+            avg(ast)         AS avg_ast,
+            avg(stl)         AS avg_stl,
+            avg(blk)         AS avg_blk,
+            avg(to)          AS avg_to,
+            avg(val)         AS avg_val,
+            avg(plus_minus)  AS avg_plus_minus,
+            sum(t2m) AS sum_t2m, sum(t2a) AS sum_t2a,
+            sum(t3m) AS sum_t3m, sum(t3a) AS sum_t3a,
+            sum(ftm) AS sum_ftm, sum(fta) AS sum_fta,
             sum(points) AS total_points
         FROM feb.jugadores
         WHERE year = {year:UInt16}
         GROUP BY player_name
-        HAVING games >= {min_games:UInt8} AND min >= {min_minutes:UInt8}
-        ORDER BY val DESC
+        HAVING games >= {min_games:UInt8} AND avg_min >= {min_minutes:UInt8}
+        ORDER BY avg_val DESC
         """,
         {**params, "min_games": MIN_GAMES, "min_minutes": MIN_MINUTES},
     )
@@ -200,31 +209,31 @@ async def dashboard(
 
 
 def _leader(row: Dict[str, Any]) -> Dict[str, Any]:
-    fgm = _num(row["t2m"], float) + _num(row["t3m"], float)
-    fga = _num(row["t2a"], float) + _num(row["t3a"], float)
-    fta = _num(row["fta"], float)
+    fgm = _num(row["sum_t2m"], float) + _num(row["sum_t3m"], float)
+    fga = _num(row["sum_t2a"], float) + _num(row["sum_t3a"], float)
+    fta = _num(row["sum_fta"], float)
     return {
         "slug": player_slug(row["player_name"]),
         "name": display_name(row["player_name"]),
         "team": row["team"],
         "games": _num(row["games"], int),
         "perGame": {
-            "min": _num(row["min"], float, 1),
-            "pts": _num(row["pts"], float, 1),
-            "reb": _num(row["reb"], float, 1),
-            "ast": _num(row["ast"], float, 1),
-            "stl": _num(row["stl"], float, 1),
-            "blk": _num(row["blk"], float, 1),
-            "to": _num(row["to"], float, 1),
-            "val": _num(row["val"], float, 1),
-            "plusMinus": _num(row["plus_minus"], float, 1),
+            "min": _num(row["avg_min"], float, 1),
+            "pts": _num(row["avg_pts"], float, 1),
+            "reb": _num(row["avg_reb"], float, 1),
+            "ast": _num(row["avg_ast"], float, 1),
+            "stl": _num(row["avg_stl"], float, 1),
+            "blk": _num(row["avg_blk"], float, 1),
+            "to": _num(row["avg_to"], float, 1),
+            "val": _num(row["avg_val"], float, 1),
+            "plusMinus": _num(row["avg_plus_minus"], float, 1),
         },
         "shooting": {
-            "t2": _ratio(row["t2m"], row["t2a"]),
-            "t3": _ratio(row["t3m"], row["t3a"]),
-            "ft": _ratio(row["ftm"], row["fta"]),
+            "t2": _ratio(row["sum_t2m"], row["sum_t2a"]),
+            "t3": _ratio(row["sum_t3m"], row["sum_t3a"]),
+            "ft": _ratio(row["sum_ftm"], row["sum_fta"]),
             "fg": _ratio(fgm, fga),
-            "efg": round((fgm + 0.5 * _num(row["t3m"], float)) / fga, 4) if fga else None,
+            "efg": round((fgm + 0.5 * _num(row["sum_t3m"], float)) / fga, 4) if fga else None,
             "ts": (round(_num(row["total_points"], float) / (2 * (fga + 0.44 * fta)), 4)
                    if (fga + fta) else None),
         },
@@ -267,11 +276,13 @@ async def player(slug: str, season: Optional[str] = Query(None)):
             argMax(team, game_date) AS team,
             argMax(jersey, game_date) AS jersey,
             count() AS games,
-            sum(minutes) AS min, sum(points) AS pts, sum(reb) AS reb, sum(ast) AS ast,
-            sum(stl) AS stl, sum(blk) AS blk, sum(to) AS "to", sum(pf) AS pf, sum(val) AS val,
-            sum(t2m) AS t2m, sum(t2a) AS t2a, sum(t3m) AS t3m, sum(t3a) AS t3a,
-            sum(ftm) AS ftm, sum(fta) AS fta,
-            avg(plus_minus) AS plus_minus,
+            sum(minutes) AS sum_min, sum(points) AS sum_pts, sum(reb) AS sum_reb,
+            sum(ast) AS sum_ast, sum(stl) AS sum_stl, sum(blk) AS sum_blk,
+            sum(to) AS sum_to, sum(pf) AS sum_pf, sum(val) AS sum_val,
+            sum(t2m) AS sum_t2m, sum(t2a) AS sum_t2a,
+            sum(t3m) AS sum_t3m, sum(t3a) AS sum_t3a,
+            sum(ftm) AS sum_ftm, sum(fta) AS sum_fta,
+            avg(plus_minus) AS avg_plus_minus,
             max(points) AS best_pts, max(reb) AS best_reb,
             max(ast) AS best_ast, max(val) AS best_val
         FROM feb.jugadores
@@ -283,11 +294,11 @@ async def player(slug: str, season: Optional[str] = Query(None)):
         raise HTTPException(status_code=404, detail=f"Jugador '{slug}' sin partidos en {year}")
 
     games = _num(totals["games"], int)
-    minutes = _num(totals["min"], float) or 0.0
-    fgm = _num(totals["t2m"], float) + _num(totals["t3m"], float)
-    fga = _num(totals["t2a"], float) + _num(totals["t3a"], float)
-    fta = _num(totals["fta"], float)
-    points = _num(totals["pts"], float)
+    minutes = _num(totals["sum_min"], float) or 0.0
+    fgm = _num(totals["sum_t2m"], float) + _num(totals["sum_t3m"], float)
+    fga = _num(totals["sum_t2a"], float) + _num(totals["sum_t3a"], float)
+    fta = _num(totals["sum_fta"], float)
+    points = _num(totals["sum_pts"], float)
 
     log_rows = await ch_query(
         """
@@ -339,30 +350,30 @@ async def player(slug: str, season: Optional[str] = Query(None)):
         "jersey": _num(totals["jersey"], int),
         "games": games,
         "meta": {**COMPETITION, "season": f"{year}/{year + 1}", "seasonKey": str(year)},
-        "totals": {key: _num(totals[key], float, 1) for key in
+        "totals": {key: _num(totals["sum_" + key], float, 1) for key in
                    ("min", "pts", "reb", "ast", "stl", "blk", "to", "pf", "val",
                     "t2m", "t2a", "t3m", "t3a", "ftm", "fta")},
         "perGame": {
             "min": round(minutes / games, 1),
             "pts": round(points / games, 1),
-            "reb": round(_num(totals["reb"], float) / games, 1),
-            "ast": round(_num(totals["ast"], float) / games, 1),
-            "stl": round(_num(totals["stl"], float) / games, 1),
-            "blk": round(_num(totals["blk"], float) / games, 1),
-            "to": round(_num(totals["to"], float) / games, 1),
-            "val": round(_num(totals["val"], float) / games, 1),
-            "plusMinus": _num(totals["plus_minus"], float, 1),
+            "reb": round(_num(totals["sum_reb"], float) / games, 1),
+            "ast": round(_num(totals["sum_ast"], float) / games, 1),
+            "stl": round(_num(totals["sum_stl"], float) / games, 1),
+            "blk": round(_num(totals["sum_blk"], float) / games, 1),
+            "to": round(_num(totals["sum_to"], float) / games, 1),
+            "val": round(_num(totals["sum_val"], float) / games, 1),
+            "plusMinus": _num(totals["avg_plus_minus"], float, 1),
         },
         "shooting": {
-            "t2": _ratio(totals["t2m"], totals["t2a"]),
-            "t3": _ratio(totals["t3m"], totals["t3a"]),
-            "ft": _ratio(totals["ftm"], totals["fta"]),
+            "t2": _ratio(totals["sum_t2m"], totals["sum_t2a"]),
+            "t3": _ratio(totals["sum_t3m"], totals["sum_t3a"]),
+            "ft": _ratio(totals["sum_ftm"], totals["sum_fta"]),
             "fg": _ratio(fgm, fga),
-            "efg": round((fgm + 0.5 * _num(totals["t3m"], float)) / fga, 4) if fga else None,
+            "efg": round((fgm + 0.5 * _num(totals["sum_t3m"], float)) / fga, 4) if fga else None,
             "ts": round(points / (2 * (fga + 0.44 * fta)), 4) if (fga + fta) else None,
         },
-        "per36": {"pts": per36(totals["pts"]), "reb": per36(totals["reb"]),
-                  "ast": per36(totals["ast"])},
+        "per36": {"pts": per36(totals["sum_pts"]), "reb": per36(totals["sum_reb"]),
+                  "ast": per36(totals["sum_ast"])},
         "zones": zones,
         "bests": {key: _num(totals[f"best_{key}"], int) for key in ("pts", "reb", "ast", "val")},
         "gameLog": [

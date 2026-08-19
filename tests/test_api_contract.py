@@ -9,6 +9,7 @@ Ejecutar:  python -m unittest tests.test_api_contract -v
 """
 import asyncio
 import json
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -47,10 +48,11 @@ def _rows_for(sql: str, params):
     if "GROUP BY player_name" in sql:
         return [{
             "player_name": RAW_NAME, "team": TEAM, "games": "9",
-            "min": 30.0, "pts": 13.8, "reb": 8.3, "ast": 3.7, "val": 23.6,
-            "stl": 2.1, "blk": 0.1, "to": 2.3, "plus_minus": 6.9,
-            "t2m": "25", "t2a": "39", "t3m": "13", "t3a": "28",
-            "ftm": "35", "fta": "46", "total_points": "124",
+            "avg_min": 30.0, "avg_pts": 13.8, "avg_reb": 8.3, "avg_ast": 3.7,
+            "avg_val": 23.6, "avg_stl": 2.1, "avg_blk": 0.1, "avg_to": 2.3,
+            "avg_plus_minus": 6.9,
+            "sum_t2m": "25", "sum_t2a": "39", "sum_t3m": "13", "sum_t3a": "28",
+            "sum_ftm": "35", "sum_fta": "46", "total_points": "124",
         }]
     if "ORDER BY game_date DESC" in sql:
         return [{
@@ -63,10 +65,11 @@ def _rows_for(sql: str, params):
     if "best_val" in sql:
         return [{
             "team": TEAM, "jersey": "3", "games": "9",
-            "min": 270.0, "pts": "124", "reb": "75", "ast": "33",
-            "stl": "19", "blk": "1", "to": "21", "pf": "22", "val": "212",
-            "t2m": "25", "t2a": "39", "t3m": "13", "t3a": "28",
-            "ftm": "35", "fta": "46", "plus_minus": 6.9,
+            "sum_min": 270.0, "sum_pts": "124", "sum_reb": "75", "sum_ast": "33",
+            "sum_stl": "19", "sum_blk": "1", "sum_to": "21", "sum_pf": "22",
+            "sum_val": "212",
+            "sum_t2m": "25", "sum_t2a": "39", "sum_t3m": "13", "sum_t3a": "28",
+            "sum_ftm": "35", "sum_fta": "46", "avg_plus_minus": 6.9,
             "best_pts": "23", "best_reb": "17", "best_ast": "8", "best_val": "34",
         }]
     if "FROM feb.jugadores AS j" in sql and "INNER JOIN feb.partidos" in sql:

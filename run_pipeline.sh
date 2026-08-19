@@ -66,7 +66,14 @@ run_spark() {
     local job=$1
     ensure_jars
     sync_jobs
-    docker exec feb-spark-master /opt/spark/bin/spark-submit \
+    # FEB_REBUILD reescribe esquema y particiones (necesario si cambia el
+    # particionado). FEB_COMPETITIONS y FEB_SEASONS acotan la ejecución a unas
+    # particiones concretas, que es lo que hace incremental el pipeline.
+    docker exec \
+        -e FEB_REBUILD="${FEB_REBUILD:-}" \
+        -e FEB_COMPETITIONS="${FEB_COMPETITIONS:-}" \
+        -e FEB_SEASONS="${FEB_SEASONS:-}" \
+        feb-spark-master /opt/spark/bin/spark-submit \
         --master spark://spark-master:7077 \
         --jars ${JARS} \
         --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \

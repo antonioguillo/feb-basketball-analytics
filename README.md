@@ -364,6 +364,43 @@ ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
 presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
 import dinámico: no entran en el bundle inicial.
 
+## Procesado incremental
+
+Las capas están particionadas por **competición y temporada**:
+
+```
+bronze/players/competition=tercerafeb/year=2025/...
+gold/fact_tiros/competition=lfendesa/year=2024/...
+```
+
+Acotando la ejecución solo se reprocesan esas particiones, en vez del histórico
+entero. Con `partitionOverwriteMode=dynamic`, la escritura toca únicamente las
+particiones presentes en los datos escritos:
+
+```bash
+# Solo la temporada en curso de una liga
+FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh bronze
+FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh silver
+
+# Reconstrucción completa (obligatoria si cambia el particionado o los tipos)
+FEB_REBUILD=1 ./run_pipeline.sh bronze
+```
+
+> `year` es la **temporada**, no el año natural. La 2025/2026 se juega entre
+> octubre de 2025 y mayo de 2026; derivar el año de la fecha del partido partía
+> cada temporada en dos particiones. El año natural se conserva aparte en
+> `bronze_games.calendar_year`.
+
+### Credenciales de ClickHouse
+
+Sin contraseña, la imagen oficial solo admite al usuario `default` desde dentro
+del contenedor y responde a cualquier petición del host con un
+«Authentication failed» que despista. El compose fija una:
+
+```bash
+CH_USER=default CH_PASSWORD=feb        # valores por defecto, cambiables por entorno
+```
+
 ## API REST (`api.py`)
 
 ```bash

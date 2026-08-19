@@ -21,7 +21,9 @@ LAKE_ROOT = os.environ.get("FEB_LAKE_ROOT", "s3a://")
 TABLE_FORMAT = os.environ.get("FEB_TABLE_FORMAT", "delta")
 
 _builder = (SparkSession.builder.appName("FEB Silver")
-            .config("spark.sql.shuffle.partitions", "8"))
+            .config("spark.sql.shuffle.partitions", "8")
+            .config("spark.sql.sources.partitionOverwriteMode",
+                    "static" if os.environ.get("FEB_REBUILD") == "1" else "dynamic"))
 if TABLE_FORMAT == "delta":
     _builder = (_builder
                 .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
@@ -39,6 +41,37 @@ spark = _builder.getOrCreate()
 
 BRONZE = LAKE_ROOT + "bronze/"
 SILVER = LAKE_ROOT + "silver/"
+
+# Alcance de la ejecución. Vacío = todo el lago; con valores, solo se reprocesan
+# esas particiones. Con partitionOverwriteMode=dynamic la escritura toca
+# únicamente las particiones presentes en los datos escritos, de modo que
+# actualizar una temporada no reescribe el histórico entero.
+SCOPE_COMPETITIONS = [c for c in os.environ.get("FEB_COMPETITIONS", "").split(",") if c]
+SCOPE_SEASONS = [s for s in os.environ.get("FEB_SEASONS", "").split(",") if s]
+
+PARTITIONS = ["competition", "year"]
+
+# Un cambio de particionado o de tipos no se puede aplicar sobre una tabla
+# existente: hay que reescribirla entera. FEB_REBUILD=1 hace justo eso.
+REBUILD = os.environ.get("FEB_REBUILD", "") == "1"
+
+
+
+def scoped(df):
+    """Restringe un DataFrame al alcance pedido, podando particiones."""
+    for column, values in (("competition", SCOPE_COMPETITIONS), ("year", SCOPE_SEASONS)):
+        if values:
+            df = df.filter(F.col(column).isin(values))
+    return df
+
+def _save(df, path):
+    """Escribe una tabla particionada; en modo reconstrucción rehace el esquema."""
+    writer = df.write.mode("overwrite").partitionBy(*PARTITIONS)
+    if REBUILD:
+        writer = writer.option("overwriteSchema", "true")
+    writer.format(TABLE_FORMAT).save(path)
+
+
 
 # Columnas enteras tal y como las produce bronze (ver jobs/spark_bronze.py).
 INT_COLS = ["jersey", "points", "t2m", "t2a", "t3m", "t3a", "ftm", "fta", "reb",
@@ -65,7 +98,7 @@ def _per_minute(df, name, numerator, per=36):
 
 
 def clean_players():
-    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "players")
+    df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "players"))
 
     # bronze usa nombres heredados del scraper; silver fija el contrato que
     # consumen gold, el export a staging y el esquema de ClickHouse.
@@ -117,46 +150,46 @@ def clean_players():
 
     df = df.filter(F.col("player_name").isNotNull()).dropDuplicates(
         ["game_id", "player_name", "jersey"])
-    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "players")
+    _save(df, SILVER + "players")
     print(f"silver_players: {df.count()}")
 
 
 def clean_games():
     """Cabecera del partido: fecha tipada y nombres de equipo normalizados."""
-    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "games")
+    df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "games"))
     df = _to_int(df, ["home_score", "away_score"])
     df = df.withColumn("game_date", F.to_date(F.col("date"), "dd/MM/yyyy"))
     for col in ("home_team", "away_team", "venue"):
         df = df.withColumn(col, F.trim(F.col(col)))
     df = df.filter(F.col("home_team").isNotNull() & F.col("away_team").isNotNull())
     df = df.dropDuplicates(["game_id"])
-    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "games")
+    _save(df, SILVER + "games")
     print(f"silver_games: {df.count()}")
 
 
 def clean_playbyplay():
-    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "playbyplay")
+    df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "playbyplay"))
     df = _to_int(df, ["num", "quarter", "team", "scoreA", "scoreB"])
     df = df.filter(F.col("text").isNotNull()).dropDuplicates(["game_id", "num"])
-    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "playbyplay")
+    _save(df, SILVER + "playbyplay")
     print(f"silver_playbyplay: {df.count()}")
 
 
 def clean_shots():
-    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "shots")
+    df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "shots"))
     df = _to_int(df, ["quarter", "player", "team", "made"])
     df = _to_float(df, ["x", "y"])
     df = df.filter(F.col("x").isNotNull()).dropDuplicates(["game_id", "quarter", "time", "player", "x", "y"])
-    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "shots")
+    _save(df, SILVER + "shots")
     print(f"silver_shots: {df.count()}")
 
 
 def clean_teamstats():
-    df = spark.read.format(TABLE_FORMAT).load(BRONZE + "teamstats")
+    df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "teamstats"))
     df = _to_int(df, ["points", "t2m", "t2a", "t3m", "t3a", "ftm", "fta",
                       "off_reb", "def_reb", "tot_reb", "ast", "stl", "to", "blk", "pf"])
     df = df.filter(F.col("team_name").isNotNull()).dropDuplicates(["game_id", "team_id"])
-    df.write.mode("overwrite").partitionBy("year").format(TABLE_FORMAT).save(SILVER + "teamstats")
+    _save(df, SILVER + "teamstats")
     print(f"silver_teamstats: {df.count()}")
 
 

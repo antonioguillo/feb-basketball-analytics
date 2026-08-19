@@ -22,8 +22,24 @@ SECRET_KEY = sys.argv[3] if len(sys.argv) > 3 else "minioadmin"
 LAKE_ROOT = os.environ.get("FEB_LAKE_ROOT", "s3a://")
 TABLE_FORMAT = os.environ.get("FEB_TABLE_FORMAT", "delta")
 
+# Alcance de la ejecución. Vacío = todo el lago. Con valores, solo se reprocesan
+# esas particiones: es lo que hace incremental el pipeline, porque con
+# partitionOverwriteMode=dynamic la escritura solo toca las particiones que
+# aparecen en los datos escritos.
+SCOPE_COMPETITIONS = [c for c in os.environ.get("FEB_COMPETITIONS", "").split(",") if c]
+SCOPE_SEASONS = [s for s in os.environ.get("FEB_SEASONS", "").split(",") if s]
+
+PARTITIONS = ["competition", "year"]
+
+# Un cambio de particionado o de tipos no se puede aplicar sobre una tabla
+# existente: hay que reescribirla entera. FEB_REBUILD=1 hace justo eso.
+REBUILD = os.environ.get("FEB_REBUILD", "") == "1"
+
+
 _builder = (SparkSession.builder.appName("FEB Bronze")
-            .config("spark.sql.shuffle.partitions", "8"))
+            .config("spark.sql.shuffle.partitions", "8")
+            .config("spark.sql.sources.partitionOverwriteMode",
+                    "static" if os.environ.get("FEB_REBUILD") == "1" else "dynamic"))
 if TABLE_FORMAT == "delta":
     _builder = (_builder
                 .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
@@ -43,17 +59,37 @@ RAW = LAKE_ROOT + "raw/"
 BRONZE = LAKE_ROOT + "bronze/"
 
 
-def save(df, name, partition_by="year"):
+def save(df, name, partition_by=PARTITIONS):
     writer = df.write.mode("overwrite")
     if partition_by:
-        writer = writer.partitionBy(partition_by)
+        writer = writer.partitionBy(*partition_by)
+    if REBUILD:
+        writer = writer.option("overwriteSchema", "true")
     writer.format(TABLE_FORMAT).save(BRONZE + name)
 
 
 def read_raw() -> "DataFrame":
-    df = (spark.read.json(RAW)
-          .withColumn("year", F.substring(F.col("meta.date"), 7, 4)))
-    return df
+    """Lee raw aprovechando la partición del propio path.
+
+    Las rutas son competition=<liga>/year=<temporada>/group=<grupo>/..., así que
+    Spark expone esas tres claves como columnas. `year` es la TEMPORADA, no el
+    año natural: la 2025/2026 se juega entre octubre de 2025 y mayo de 2026, y
+    derivar el año de `meta.date` partía cada temporada en dos.
+    """
+    # Se leen solo las rutas bien particionadas, no el bucket entero: cualquier
+    # objeto suelto (una prueba, un fichero de otro proceso) reventaría la
+    # inferencia de esquema. `basePath` es lo que mantiene el descubrimiento de
+    # particiones al usar un patrón.
+    df = (spark.read
+          .option("basePath", RAW)
+          .json(RAW + "competition=*/year=*/group=*/*.json"))
+
+    for column, values in (("competition", SCOPE_COMPETITIONS), ("year", SCOPE_SEASONS)):
+        if values:
+            df = df.filter(F.col(column).isin(values))
+
+    # El año natural se conserva aparte: sirve para fechar, no para agrupar.
+    return df.withColumn("calendar_year", F.substring(F.col("meta.date"), 7, 4))
 
 
 def build_games(df):
@@ -64,7 +100,10 @@ def build_games(df):
     """
     games = df.select(
         F.col("meta.game_id").alias("game_id"),
+        F.col("competition"),
         F.col("year"),
+        F.col("group"),
+        F.col("calendar_year"),
         F.col("meta.date").alias("date"),
         F.col("meta.time").alias("tipoff"),
         F.col("meta.venue").alias("venue"),
@@ -72,7 +111,6 @@ def build_games(df):
         F.col("meta.away_team").alias("away_team"),
         F.col("meta.home_score").alias("home_score"),
         F.col("meta.away_score").alias("away_score"),
-        F.col("meta.group").alias("group"),
     ).dropDuplicates(["game_id"])
     save(games, "games")
     print(f"bronze_games: {games.count()} filas")
@@ -84,14 +122,17 @@ def build_players(df):
         return (df.select(
             F.col("meta.game_id").alias("game_id"),
             F.col("meta.date").alias("date"),
+            F.col("competition"),
             F.col("year"),
+            F.col("group"),
             F.lit(is_home).alias("is_home"),
             F.col(team_col).alias("team"),
             F.col("meta.home_team").alias("home_team"),
             F.col("meta.away_team").alias("away_team"),
             F.explode(rows_col).alias("p"),
         ).select(
-            "game_id", "date", "year", "is_home", "team", "home_team", "away_team",
+            "game_id", "date", "competition", "year", "group", "is_home",
+            "team", "home_team", "away_team",
             F.col("p.jersey").alias("jersey"),
             F.col("p.name").alias("player_name"),
             F.col("p.player_id").alias("player_id"),
@@ -123,10 +164,11 @@ def build_players(df):
 def build_playbyplay(df):
     pbp = (df.select(
         F.col("meta.game_id").alias("game_id"),
+        F.col("competition"),
         F.col("year"),
         F.explode("play_by_play").alias("line"),
     ).select(
-        "game_id", "year",
+        "game_id", "competition", "year",
         F.col("line.num").alias("num"),
         F.col("line.quarter").alias("quarter"),
         F.col("line.time").alias("time"),
@@ -143,10 +185,11 @@ def build_playbyplay(df):
 def build_shots(df):
     shots = (df.select(
         F.col("meta.game_id").alias("game_id"),
+        F.col("competition"),
         F.col("year"),
         F.explode("shots").alias("s"),
     ).select(
-        "game_id", "year",
+        "game_id", "competition", "year",
         F.col("s.quarter").alias("quarter"),
         F.col("s.t").alias("time"),
         F.col("s.player").alias("player"),
@@ -163,10 +206,11 @@ def build_teamstats(df):
     def flat_teams(rows_col):
         return (df.select(
             F.col("meta.game_id").alias("game_id"),
+            F.col("competition"),
             F.col("year"),
             F.explode(F.col(rows_col).getField("TEAM")).alias("t"),
         ).select(
-            "game_id", "year",
+            "game_id", "competition", "year",
             F.col("t.id").alias("team_id"),
             F.col("t.name").alias("team_name"),
             F.col("t.pts").alias("points"),

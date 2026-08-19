@@ -59,12 +59,31 @@ class JobFailed(Exception):
         )
 
 
+JOB_TIMEOUT = int(os.environ.get("FEB_TEST_JOB_TIMEOUT", "300"))
+
+
 def _run_job(name, env):
-    """Lanza un job en un proceso aparte: cada uno crea su propia SparkSession."""
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "jobs" / name)],
-        env=env, capture_output=True, text=True, cwd=str(ROOT),
-    )
+    """Lanza un job en un proceso aparte: cada uno crea su propia SparkSession.
+
+    Con timeout: en Windows, expandir un patrón de rutas sobre el sistema de
+    ficheros local puede quedarse colgado en vez de fallar, y una suite de
+    tests que no termina es peor que una que falla.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "jobs" / name)],
+            env=env, capture_output=True, text=True, cwd=str(ROOT),
+            timeout=JOB_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as expired:
+        raise JobFailed(
+            name,
+            (expired.stdout or b"").decode(errors="replace") if isinstance(expired.stdout, bytes)
+            else (expired.stdout or ""),
+            f"el job no terminó en {JOB_TIMEOUT}s (Hadoop no puede recorrer el "
+            f"sistema de ficheros local en Windows: falta winutils.exe)",
+            -1,
+        ) from expired
     if result.returncode != 0:
         raise JobFailed(name, result.stdout, result.stderr, result.returncode)
     return result.stdout
@@ -79,10 +98,9 @@ class PipelineLocalTest(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp(prefix="feb-lake-")
         cls.lake = Path(cls.tmp)
-        raw = cls.lake / "raw"
-        raw.mkdir(parents=True)
-        for src in FIXTURES.glob("*.json"):
-            shutil.copy(src, raw / src.name)
+        # Se copia el árbol entero: las rutas competition=/year=/group= son las
+        # que Spark convierte en columnas de partición.
+        shutil.copytree(FIXTURES, cls.lake / "raw")
 
         env = dict(os.environ)
         env["FEB_LAKE_ROOT"] = cls.lake.as_uri().rstrip("/") + "/"
@@ -174,6 +192,36 @@ class PipelineLocalTest(unittest.TestCase):
             self.assertEqual(sin_triples.filter("three_point_pct IS NOT NULL").count(), 0,
                              "un 0/0 no es un 0 %, tiene que quedar nulo")
 
+    def test_particiona_por_competicion_y_temporada(self):
+        for layer, name in (("bronze", "players"), ("silver", "players"),
+                            ("gold", "fact_partidos")):
+            ruta = self.lake / layer / name
+            competiciones = [p.name for p in ruta.iterdir() if p.name.startswith("competition=")]
+            self.assertTrue(competiciones, f"{layer}/{name} no está particionada por competición")
+            temporadas = [p.name for c in ruta.glob("competition=*") for p in c.iterdir()
+                          if p.name.startswith("year=")]
+            self.assertTrue(temporadas, f"{layer}/{name} no está particionada por temporada")
+
+    def test_year_es_la_temporada_no_el_ano_natural(self):
+        """Los dos partidos del fixture son de la temporada 2025 pero se jugaron
+        en años naturales distintos (octubre de 2025 y febrero de 2026). Si la
+        partición usara el año de la fecha, la temporada quedaría partida en dos."""
+        players = self.table("bronze", "players")
+        temporadas = {r["year"] for r in players.select("year").distinct().collect()}
+        self.assertEqual({2025}, {int(t) for t in temporadas},
+                         "una temporada no puede repartirse entre dos particiones")
+
+        naturales = {r["calendar_year"] for r in
+                     self.table("bronze", "games").select("calendar_year").distinct().collect()}
+        self.assertEqual({"2025", "2026"}, set(naturales),
+                         "el año natural debe conservarse aparte, no perderse")
+
+    def test_la_competicion_llega_hasta_gold(self):
+        for layer, name in (("bronze", "players"), ("silver", "players"),
+                            ("gold", "dim_jugadores"), ("gold", "fact_tiros")):
+            self.assertIn("competition", self.table(layer, name).columns,
+                          f"falta competition en {layer}/{name}")
+
     def test_silver_tipa_la_fecha(self):
         row = self.table("silver", "games").first()
         # `year` es columna de partición: al releerla, Spark infiere su tipo,
@@ -204,7 +252,7 @@ class PipelineLocalTest(unittest.TestCase):
     def test_el_marcador_reconstruido_coincide_con_la_ficha(self):
         """La suma de puntos de los jugadores debe dar el marcador del acta."""
         expected = {}
-        for path in FIXTURES.glob("*.json"):
+        for path in FIXTURES.rglob("*.json"):
             meta = json.load(open(path, encoding="utf-8"))["meta"]
             expected[int(meta["game_id"])] = (int(meta["home_score"]), int(meta["away_score"]))
 

@@ -89,6 +89,12 @@ services:
       context: .
       dockerfile: infra/clickhouse/Dockerfile
     container_name: feb-clickhouse
+    environment:
+      # Sin contraseña, la imagen oficial restringe el usuario default a
+      # conexiones desde dentro del contenedor, y cualquier petición desde el
+      # host se rechaza con un "Authentication failed" que despista.
+      CLICKHOUSE_USER: "${CH_USER:-default}"
+      CLICKHOUSE_PASSWORD: "${CH_PASSWORD:-feb}"
     ports:
       - "8123:8123"   # HTTP
       - "9004:9000"   # nativo (9000 ocupado por MinIO)

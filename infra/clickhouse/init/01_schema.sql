@@ -5,6 +5,7 @@ CREATE DATABASE IF NOT EXISTS feb;
 CREATE TABLE IF NOT EXISTS feb.jugadores
 (
     game_id       UInt32,
+    competition   String,
     year          UInt16,
     game_date     Date,
     jersey        UInt8,
@@ -35,6 +36,7 @@ ORDER BY (player_name, game_date);
 CREATE TABLE IF NOT EXISTS feb.playbyplay
 (
     game_id   UInt32,
+    competition String,
     year      UInt16,
     quarter   UInt8,
     time      String,
@@ -51,6 +53,7 @@ ORDER BY (game_id, quarter);
 CREATE TABLE IF NOT EXISTS feb.tiros
 (
     game_id   UInt32,
+    competition String,
     year      UInt16,
     quarter   UInt8,
     time      String,
@@ -71,6 +74,7 @@ ORDER BY (game_id, quarter);
 CREATE TABLE IF NOT EXISTS feb.equipos_partido
 (
     game_id   UInt32,
+    competition String,
     year      UInt16,
     team_id   UInt32,
     team_name String,
@@ -97,6 +101,7 @@ ORDER BY (game_id, team_id);
 CREATE TABLE IF NOT EXISTS feb.partidos
 (
     game_id      UInt32,
+    competition  String,
     year         UInt16,
     date         String,
     game_date    Date,
@@ -120,3 +125,12 @@ ALTER TABLE feb.tiros     ADD COLUMN IF NOT EXISTS shot_points UInt8 AFTER is_th
 ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS game_date Date AFTER date;
 ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS home_team String AFTER game_date;
 ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS away_team String AFTER home_team;
+
+-- La competición se añade también por ALTER para instalaciones anteriores.
+-- No entra en el ORDER BY: cambiarlo obligaría a recrear las tablas, y con la
+-- partición por temporada el filtrado por competición ya es barato.
+ALTER TABLE feb.jugadores       ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
+ALTER TABLE feb.playbyplay      ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
+ALTER TABLE feb.tiros           ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
+ALTER TABLE feb.equipos_partido ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
+ALTER TABLE feb.partidos        ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
