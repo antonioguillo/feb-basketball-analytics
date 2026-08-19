@@ -262,6 +262,13 @@ button {
   gap: 16px;
 }
 
+/* Precaución: un elemento de grid tiene min-width:auto, de modo que un
+   contenido ancho (una tabla) puede ensanchar su columna en vez de desbordarse
+   dentro de ella. Acotarlo a cero deja que cada bloque gestione su scroll. */
+.grid > * {
+  min-width: 0;
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -292,5 +299,14 @@ button {
   .table--scroll-sm {
     display: block;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Sin ancho mínimo las columnas se aplastan y los nombres parten en cuatro
+     líneas; con él la tabla se desplaza lateralmente y se lee. */
+  .table--scroll-sm .table {
+    min-width: 560px;
+  }
+  .panel {
+    padding: 16px;
   }
 }

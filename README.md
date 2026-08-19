@@ -346,6 +346,23 @@ feb-basketball-analytics/
 
 ## Frontend (React + Vite)
 
+Capturas de la aplicación con datos reales en `docs/capturas/`:
+
+| Fichero | Qué muestra |
+|---|---|
+| `01-dashboard.png` | Tercera FEB 2025/2026: 367 partidos, 671 jugadores, ranking paginado |
+| `02-ficha-jugador.png` | Ficha completa con el mapa de 222 tiros reales |
+| `03-lf-endesa-sin-ranking.png` | El selector cambiando de competición, y el estado vacío cuando nadie llega al mínimo |
+| `04-movil.png` | Vista estrecha (430 px) |
+
+Se regeneran con la aplicación levantada:
+
+```bash
+./run_pipeline.sh api & ./run_pipeline.sh front &
+chrome --headless=new --window-size=1440,1250        --virtual-time-budget=15000        --screenshot=docs/capturas/01-dashboard.png http://localhost:3000/
+```
+
+
 Aplicación de scouting con dos pantallas: **Dashboard** del grupo y **ficha de
 jugador** con mapa de tiro.
 
