@@ -2,6 +2,8 @@
 import os
 import re
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -182,9 +184,54 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
     print(f"\nResumen Grupo E: {total_scraped} scrapeados, {total_skipped} omitidos, {total_failed} fallidos")
 
 
+_thread_local = threading.local()
+
+
+def _scraper_del_hilo(delay: float) -> FEBBasketballScraper:
+    """Un scraper por hilo: cada uno con su sesión HTTP y su token cacheado."""
+    scraper = getattr(_thread_local, "scraper", None)
+    if scraper is None:
+        scraper = FEBBasketballScraper(delay=delay)
+        _thread_local.scraper = scraper
+    return scraper
+
+
+def _descargar_partido(url: str, delay: float):
+    """Devuelve (game_id, game). `game` es None si el partido no se ha jugado."""
+    game_id = re.search(r'(?:partido/|p=)(\d+)', url).group(1)
+    game = _scraper_del_hilo(delay).scrape_game(url)
+    if not game or not (game.home_stats or game.away_stats):
+        return game_id, None
+    return game_id, game
+
+
+def _descargar_lote(urls, delay: float, workers: int):
+    """Descarga un lote de partidos, en paralelo si workers > 1.
+
+    Con varios hilos el `delay` sigue aplicándose dentro de cada uno, así que
+    el ritmo total contra feb.es es aproximadamente `workers / delay` peticiones
+    por segundo. Conviene no pasarse: 8 hilos con delay 1 s ya son 8 req/s.
+    """
+    if workers <= 1:
+        for url in urls:
+            yield _descargar_partido(url, delay)
+        return
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_descargar_partido, url, delay): url for url in urls}
+        for future in as_completed(futures):
+            url = futures[future]
+            try:
+                yield future.result()
+            except Exception as error:
+                game_id = re.search(r'(?:partido/|p=)(\d+)', url).group(1)
+                raise RuntimeError(f"partido {game_id}: {error}") from error
+
+
 def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bool = False,
                      limit: int = None, force: bool = False, delay: float = 1.0,
-                     max_journeys: int = None, only_regular: bool = True):
+                     max_journeys: int = None, only_regular: bool = True,
+                     workers: int = 1):
     """Descarga el historico completo de una competicion.
 
     Descubre los grupos de cada temporada en el propio selector de la web (en vez
@@ -239,39 +286,35 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
                 continue
             print(f"  [{slug}] {len(links)} partidos")
 
-            for url in links:
-                if limit is not None and scraped >= limit:
-                    print(f"\nLímite de {limit} partidos alcanzado.")
-                    return _resumen(competition_name, scraped, skipped, pending, failed)
+            pendientes = [u for u in links
+                          if re.search(r'(?:partido/|p=)(\d+)', u).group(1) not in existing]
+            skipped += len(links) - len(pendientes)
+            if limit is not None:
+                pendientes = pendientes[:max(0, limit - scraped)]
 
-                game_id = re.search(r'(?:partido/|p=)(\d+)', url).group(1)
-                if game_id in existing:
-                    skipped += 1
-                    continue
-                try:
-                    game = scraper.scrape_game(url)
-                    if not game:
-                        failed += 1
-                        continue
-
+            try:
+                for game_id, game in _descargar_lote(pendientes, delay, workers):
                     # Un partido sin estadísticas de jugador todavía no se ha
                     # jugado (o la FEB aún no ha publicado el acta). No se sube:
                     # si se subiera, quedaría en raw como "ya hecho" y no se
                     # volvería a bajar nunca cuando se dispute.
-                    if not (game.home_stats or game.away_stats):
+                    if game is None:
                         pending += 1
                         continue
-
                     if store:
                         store.upload_game(game, competition=competition_name,
                                           year=season, group=slug)
                         existing.add(game_id)
                     scraped += 1
-                    if scraped % 25 == 0:
-                        print(f"    ... {scraped} scrapeados")
-                except Exception as e:
-                    print(f"    partido {game_id}: ERROR {str(e)[:100]}")
-                    failed += 1
+                    if scraped % 50 == 0:
+                        print(f"    ... {scraped} descargados")
+            except RuntimeError as error:
+                print(f"    ERROR {str(error)[:120]}")
+                failed += 1
+
+            if limit is not None and scraped >= limit:
+                print(f"\nLímite de {limit} partidos alcanzado.")
+                return _resumen(competition_name, scraped, skipped, pending, failed)
 
     return _resumen(competition_name, scraped, skipped, pending, failed)
 
@@ -283,7 +326,8 @@ def _resumen(competition_name, scraped, skipped, pending, failed):
 
 
 def actualizar(seasons: list = None, competitions: list = None, delay: float = 1.0,
-               limit: int = None, include_playoffs: bool = False):
+               limit: int = None, include_playoffs: bool = False, workers: int = 1,
+               categories: list = None):
     """Descarga lo que falte de una temporada, para ejecutar de forma recurrente.
 
     Pensado para la temporada en curso: recorre las competiciones absolutas,
@@ -293,9 +337,13 @@ def actualizar(seasons: list = None, competitions: list = None, delay: float = 1
 
     Es seguro repetirlo: no reescribe nada de lo ya descargado.
     """
-    from src.models import SENIOR_COMPETITIONS
+    from src.models import SENIOR_COMPETITIONS, competitions_by_category
 
-    competitions = competitions or SENIOR_COMPETITIONS
+    if not competitions:
+        if categories:
+            competitions = [c for cat in categories for c in competitions_by_category(cat)]
+        else:
+            competitions = SENIOR_COMPETITIONS
     seasons = seasons or [_temporada_en_curso()]
     print(f"Actualizando temporadas {seasons} · competiciones: {', '.join(competitions)}")
 
@@ -307,7 +355,7 @@ def actualizar(seasons: list = None, competitions: list = None, delay: float = 1
         print(f"\n=== {COMPETITIONS[name].name} ===")
         resultado = scrape_historico(
             name, seasons=seasons, upload_raw=True, delay=delay, limit=limit,
-            only_regular=not include_playoffs)
+            only_regular=not include_playoffs, workers=workers)
         for key in totales:
             totales[key] += (resultado or {}).get(key, 0)
 
@@ -348,6 +396,9 @@ def main():
             delay=_flag_value(sys.argv, '--delay', float, 1.0),
             limit=_flag_value(sys.argv, '--limit', int),
             include_playoffs='--all-groups' in sys.argv,
+            workers=_flag_value(sys.argv, '--workers', int, 1),
+            categories=(_flag_value(sys.argv, '--categories') or '').split(',') or None
+                       if '--categories' in sys.argv else None,
         )
         return
 
@@ -363,6 +414,7 @@ def main():
             delay=_flag_value(sys.argv, '--delay', float, 1.0),
             max_journeys=_flag_value(sys.argv, '--max-journeys', int),
             only_regular='--all-groups' not in sys.argv,
+            workers=_flag_value(sys.argv, '--workers', int, 1),
         )
         return
 

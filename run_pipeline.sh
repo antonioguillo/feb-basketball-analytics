@@ -13,7 +13,8 @@
 #   ./run_pipeline.sh gold                     # ejecuta el job gold
 #   ./run_pipeline.sh export                   # gold/silver Delta -> staging parquet
 #   ./run_pipeline.sh clickhouse               # carga staging en ClickHouse
-#   ./run_pipeline.sh backfill [temporadas]    # histórico inicial de las absolutas
+#   ./run_pipeline.sh backfill [moderno|completo|temporadas]
+#                                              # histórico inicial (ver scripts/backfill_historico.sh)
 #   ./run_pipeline.sh actualizar               # baja lo que falte de la temporada en curso
 #   ./run_pipeline.sh api                      # levanta la API REST (puerto 8000)
 #   ./run_pipeline.sh front                    # levanta el frontend (puerto 3000)
@@ -198,7 +199,7 @@ case "$cmd" in
         ;;
     backfill)
         echo "Descargando el histórico de las competiciones absolutas..."
-        ./scripts/backfill_historico.sh "${2:-2021,2022,2023,2024,2025}" "${3:-}"
+        ./scripts/backfill_historico.sh "${2:-moderno}" "${3:-}"
         ;;
     api)
         echo "Levantando la API en http://localhost:8000 (docs en /docs)..."

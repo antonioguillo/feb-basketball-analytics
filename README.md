@@ -66,36 +66,51 @@ pip install -r requirements.txt
 
 ## Cobertura del histórico
 
-Medido contra feb.es en agosto de 2026. Las seis categorías **absolutas** son
-las que alimentan el scouting; se comprobó una muestra por competición y
-temporada y **todas devuelven play-by-play y carta de tiros**, también en 2021:
+Medido contra feb.es en agosto de 2026, muestreando partidos reales por
+competición y temporada.
 
-| Competición | `g=` | Grupos de liga regular | Jornadas | Partidos/temporada |
+### Hasta dónde llega y qué trae
+
+| Periodo | Qué hay | Temporadas |
+|---|---|---|
+| **2020-2025** | ficha + **play-by-play + carta de tiros** + stats de equipo | 6 |
+| **1996-2019** | solo ficha y box score por jugador | hasta 30 |
+
+La API interna de estadísticas en vivo (`intrafeb.feb.es`) no devuelve nada
+anterior a la temporada 2020. De 2019 hacia atrás el scraper guarda el partido
+igual, pero con `play_by_play` y `shots` vacíos.
+
+El índice publica **24 competiciones**. Las de formación (cadete, infantil,
+mini…) **también tienen play-by-play** desde 2020 — un partido junior trae unas
+590 jugadas —, pero están organizadas como torneos, sin grupo de «Liga
+Regular», así que solo aparecen con `--all-groups`.
+
+| Alcance | Temporadas | Partidos | Peso en raw | Tiempo (6 hilos) |
 |---|---|---|---|---|
-| Primera FEB | 1 | 1 | 34 | ~300 |
-| Segunda FEB | 2 | 2 | 26 | ~364 |
-| Tercera FEB | 3 | 10-11 | 26-30 | ~1.820 |
-| LF Endesa | 4 | 1 | 30 | ~240 |
-| L.F.-2 | 9 | 2 | 26 | ~364 |
-| LF Challenge | 67 | 1 | 30 | ~240 |
+| `moderno` | 2020-2025 | ~20.000 | ~7,2 GB | ~2 h |
+| `completo` | 1996-2025 | ~100.000 | ~8,0 GB | ~10 h |
 
-**Total liga regular 2021-2025: ~17.400 partidos**, unas 5,8 h de scraping
-secuencial y ~0,8 GB en la capa raw.
-
-El catálogo completo de `src/models.py` tiene 24 competiciones, incluidas las
-copas (`copa`) y las categorías de formación (`base`). Estas últimas no se
-descargan por defecto.
+Un partido con play-by-play ocupa ~375 KB; uno sin él, ~10 KB. De ahí que
+multiplicar por cinco el número de partidos apenas aumente el peso total.
 
 ### Descarga inicial
 
 ```bash
 ./run_pipeline.sh up                       # imprescindible: raw vive en MinIO
-./run_pipeline.sh backfill                 # 2021-2025, las seis absolutas
-./run_pipeline.sh backfill 2024,2025       # solo unas temporadas
+./run_pipeline.sh backfill moderno         # 2020-2025 con play-by-play
+./run_pipeline.sh backfill completo        # todo el histórico, todas las categorías
+./run_pipeline.sh backfill 2024,2025       # temporadas sueltas
 ./run_pipeline.sh backfill 2025 tercerafeb # una competición
+
+WORKERS=6 DELAY=0.5 ./scripts/backfill_historico.sh completo
 ```
 
 Se puede cortar y reanudar: lo ya descargado se omite.
+
+`--workers N` descarga en paralelo. El ritmo real contra feb.es es
+aproximadamente `workers / delay` peticiones por segundo; con los valores por
+defecto (4 hilos, 1 s) son 4 req/s. Medido: 6 hilos bajan un lote 3,6 veces
+más rápido que en secuencial.
 
 ### Mantener la temporada al día
 

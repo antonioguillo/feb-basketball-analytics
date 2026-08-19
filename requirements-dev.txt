@@ -1,0 +1,11 @@
+# Dependencias solo de desarrollo y pruebas.
+#   pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+
+# Los jobs de Spark se ejecutan dentro del contenedor, que ya trae pyspark.
+# En local hace falta para tests/test_pipeline_local.py, que los ejecuta de
+# verdad sobre disco. Debe coincidir con la versión de la imagen del compose.
+pyspark==3.5.1
+
+# Cuadernos de análisis exploratorio (notebooks/)
+jupyter>=1.0.0
