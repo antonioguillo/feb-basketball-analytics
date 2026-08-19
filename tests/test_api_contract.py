@@ -26,6 +26,7 @@ FIXTURES = json.loads(
 
 # Un jugador real con tiros y varios partidos, tal y como sale del scraper.
 RAW_NAME = "ORTEGA IBAÑEZ, ALEJANDRO"
+COMPETITION = "tercerafeb"
 TEAM = "THE FITZGERALD EL PILAR"
 
 
@@ -37,20 +38,25 @@ def _rows_for(sql: str, params):
     """
     if "SELECT 1" in sql:
         return [{"1": 1}]
-    if "max(year)" in sql:
+    if "GROUP BY year" in sql:
         return [{"year": "2025"}]
-    if "uniqExact(game_date)" in sql:
-        return [{"journeys": "9"}]
+    if "GROUP BY competition ORDER BY" in sql:
+        return [{"competition": COMPETITION}]
+    if "groupUniqArray(`group`) AS lista" in sql:
+        return [{"partidos": "175", "jornadas": "9", "lista": ["E-A"]}]
+    if "GROUP BY competition, year" in sql:
+        return [{"competition": COMPETITION, "year": "2025",
+                 "grupos": ["E-A"], "partidos": "175"}]
     if "AS games," in sql and "AS teams," in sql:
         return [{"games": "63", "teams": "14", "players": "203", "shots": "8800"}]
-    if "count() AS n" in sql:
-        return [{"n": "175"}]
+    if "SELECT count() AS n FROM (" in sql:
+        return [{"n": "243"}]
     if "GROUP BY player_name" in sql:
         return [{
             "player_name": RAW_NAME, "team": TEAM, "games": "9",
             "avg_min": 30.0, "avg_pts": 13.8, "avg_reb": 8.3, "avg_ast": 3.7,
             "avg_val": 23.6, "avg_stl": 2.1, "avg_blk": 0.1, "avg_to": 2.3,
-            "avg_plus_minus": 6.9,
+            "avg_plus_minus": 6.9, "grupo": "E-A",
             "sum_t2m": "25", "sum_t2a": "39", "sum_t3m": "13", "sum_t3a": "28",
             "sum_ftm": "35", "sum_fta": "46", "total_points": "124",
         }]
@@ -69,7 +75,7 @@ def _rows_for(sql: str, params):
             "sum_stl": "19", "sum_blk": "1", "sum_to": "21", "sum_pf": "22",
             "sum_val": "212",
             "sum_t2m": "25", "sum_t2a": "39", "sum_t3m": "13", "sum_t3a": "28",
-            "sum_ftm": "35", "sum_fta": "46", "avg_plus_minus": 6.9,
+            "sum_ftm": "35", "sum_fta": "46", "avg_plus_minus": 6.9, "grupo": "E-A",
             "best_pts": "23", "best_reb": "17", "best_ast": "8", "best_val": "34",
         }]
     if "FROM feb.jugadores AS j" in sql and "INNER JOIN feb.partidos" in sql:
@@ -102,6 +108,7 @@ class ApiContractTest(unittest.TestCase):
         self.fake = FakeClickHouse()
         self._real = api.ch_query
         api.ch_query = self.fake
+        api.invalidar_indice_slugs()   # el índice es estado global entre tests
 
     def tearDown(self):
         api.ch_query = self._real
@@ -114,7 +121,9 @@ class ApiContractTest(unittest.TestCase):
     def test_dashboard_tiene_las_claves_del_frontend(self):
         result = self.run_async(api.dashboard(season="2025", group=None))
 
-        self.assertEqual(set(result), {"meta", "summary", "leaders", "recentGames"})
+        # El contrato es que estén las claves que el frontend consume; que la
+        # respuesta traiga alguna más (leadersTotal, paginación) no la rompe.
+        self.assertLessEqual({"meta", "summary", "leaders", "recentGames"}, set(result))
         self.assertEqual(set(result["summary"]), set(FIXTURES["summary"]))
         for key in ("competition", "season", "seasonKey", "group", "groupKey",
                     "journeys", "groupTotalGames"):
@@ -125,10 +134,9 @@ class ApiContractTest(unittest.TestCase):
         leader = self.run_async(api.dashboard(season="2025", group=None))["leaders"][0]
         reference = FIXTURES["leaders"][0]
 
-        self.assertEqual(set(leader), set(reference))
-        self.assertEqual(set(leader["perGame"]) & set(reference["perGame"]),
-                         set(reference["perGame"]))
-        self.assertEqual(set(leader["shooting"]), set(reference["shooting"]))
+        self.assertLessEqual(set(reference), set(leader))
+        self.assertLessEqual(set(reference["perGame"]), set(leader["perGame"]))
+        self.assertLessEqual(set(reference["shooting"]), set(leader["shooting"]))
 
     def test_leader_calcula_bien_el_tiro(self):
         leader = self.run_async(api.dashboard(season="2025", group=None))["leaders"][0]
@@ -149,7 +157,7 @@ class ApiContractTest(unittest.TestCase):
 
     def test_recent_games_usan_los_nombres_de_equipo(self):
         game = self.run_async(api.dashboard(season="2025", group=None))["recentGames"][0]
-        self.assertEqual(set(game), set(FIXTURES["recentGames"][0]))
+        self.assertLessEqual(set(FIXTURES["recentGames"][0]), set(game))
         self.assertIsInstance(game["homeScore"], int)
         self.assertTrue(game["home"] and game["away"])
 

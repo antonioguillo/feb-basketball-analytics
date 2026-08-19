@@ -109,6 +109,44 @@ class ApiIntegracionTest(unittest.TestCase):
                          "cada tiro tiene que caer en una zona y solo en una")
         self.assertTrue(set(ficha["zones"]) <= {"aro", "media", "triple"})
 
+    def test_no_mezcla_competiciones(self):
+        """Una respuesta habla de una sola competición: sumar la Tercera FEB
+        masculina con la LF Endesa en un mismo resumen no significa nada."""
+        catalogo = self.run_async(api.competitions())["competitions"]
+        por_temporada = {}
+        for entrada in catalogo:
+            por_temporada.setdefault(entrada["seasonKey"], []).append(entrada)
+        compartidas = [t for t, e in por_temporada.items() if len(e) > 1]
+        if not compartidas:
+            self.skipTest("no hay dos competiciones en la misma temporada")
+
+        temporada = compartidas[0]
+        for entrada in por_temporada[temporada]:
+            d = self.run_async(api.dashboard(competition=entrada["competitionKey"],
+                                             season=temporada))
+            self.assertEqual(d["summary"]["games"], entrada["games"],
+                             f"{entrada['competitionKey']} no cuadra con el catálogo")
+            self.assertEqual(d["meta"]["competitionKey"], entrada["competitionKey"])
+
+    def test_el_grupo_filtra_de_verdad(self):
+        d = self.run_async(api.dashboard(season=self.season))
+        grupos = d["meta"]["groups"]
+        if len(grupos) < 2:
+            self.skipTest("esa competición tiene un solo grupo")
+
+        parcial = self.run_async(api.dashboard(
+            competition=d["meta"]["competitionKey"], season=self.season, group=grupos[0]))
+        self.assertLess(parcial["summary"]["games"], d["summary"]["games"])
+        self.assertEqual(parcial["meta"]["groupKey"], grupos[0])
+
+    def test_la_paginacion_no_solapa(self):
+        uno = self.run_async(api.dashboard(season=self.season, limit=5))
+        dos = self.run_async(api.dashboard(season=self.season, limit=5, offset=5))
+        self.assertEqual(len(uno["leaders"]), 5)
+        self.assertGreaterEqual(uno["leadersTotal"], 10)
+        self.assertFalse({l["slug"] for l in uno["leaders"]}
+                         & {l["slug"] for l in dos["leaders"]})
+
     def test_un_jugador_inexistente_da_404(self):
         from fastapi import HTTPException
         with self.assertRaises(HTTPException) as ctx:

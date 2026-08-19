@@ -11,12 +11,16 @@
  * Los fixtures se cargan con import dinámico: pesan ~670 KB y no deben entrar
  * en el bundle inicial de quien sí tiene API.
  *
- * Endpoints esperados en el backend:
- *   GET /api/dashboard?season=<año>&group=<clave>
- *        -> { meta, summary, leaders[], recentGames[] }
- *   GET /api/players/<slug>
- *        -> perfil (meta?, totals, perGame, shooting, per36, zones,
+ * Endpoints del backend:
+ *   GET /api/competitions
+ *        -> { competitions[] } — qué hay cargado
+ *   GET /api/dashboard?competition=&season=&group=&limit=&offset=
+ *        -> { meta, summary, leaders[], leadersTotal, recentGames[] }
+ *   GET /api/players/<slug>?competition=&season=&group=
+ *        -> perfil (meta, totals, perGame, shooting, per36, zones,
  *           bests, gameLog[], shots[])
+ *
+ * Toda respuesta se refiere a una sola competición; `meta` dice cuál.
  *
  * La forma exacta de cada objeto es la de `fixtures.json`.
  */
@@ -77,11 +81,16 @@ async function withFallback(path, pick) {
   }
 }
 
-export function getDashboard({ season, group } = {}) {
+function queryString(params) {
   const query = new URLSearchParams();
-  if (season) query.set('season', season);
-  if (group) query.set('group', group);
-  const suffix = query.toString() ? `?${query}` : '';
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') query.set(key, value);
+  }
+  return query.toString() ? `?${query}` : '';
+}
+
+export function getDashboard({ competition, season, group, limit, offset } = {}) {
+  const suffix = queryString({ competition, season, group, limit, offset });
 
   return withFallback(`/dashboard${suffix}`, (fixtures) => ({
     meta: fixtures.meta,
@@ -91,8 +100,26 @@ export function getDashboard({ season, group } = {}) {
   }));
 }
 
-export function getPlayer(slug) {
-  return withFallback(`/players/${encodeURIComponent(slug)}`, (fixtures) => fixtures.players[slug]);
+export function getPlayer(slug, { competition, season, group } = {}) {
+  // El contexto viaja en la URL para que la ficha sea la del mismo grupo y
+  // temporada que el listado desde el que se llegó.
+  const suffix = queryString({ competition, season, group });
+  return withFallback(`/players/${encodeURIComponent(slug)}${suffix}`,
+                      (fixtures) => fixtures.players[slug]);
+}
+
+/** Competiciones, temporadas y grupos con datos cargados. */
+export function getCompetitions() {
+  return withFallback('/competitions', (fixtures) => ({
+    competitions: [{
+      competitionKey: fixtures.meta.competitionKey,
+      competition: fixtures.meta.competition,
+      seasonKey: fixtures.meta.seasonKey,
+      season: fixtures.meta.season,
+      groups: [fixtures.meta.groupKey],
+      games: fixtures.summary.games,
+    }],
+  }));
 }
 
 /** Slugs disponibles en los datos de ejemplo (para navegación y pruebas). */

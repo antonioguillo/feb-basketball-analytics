@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS feb.jugadores
 (
     game_id       UInt32,
     competition   String,
+    `group`       String,
     year          UInt16,
     game_date     Date,
     jersey        UInt8,
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS feb.partidos
 (
     game_id      UInt32,
     competition  String,
+    `group`      String,
     year         UInt16,
     date         String,
     game_date    Date,
@@ -134,3 +136,7 @@ ALTER TABLE feb.playbyplay      ADD COLUMN IF NOT EXISTS competition String AFTE
 ALTER TABLE feb.tiros           ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
 ALTER TABLE feb.equipos_partido ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
 ALTER TABLE feb.partidos        ADD COLUMN IF NOT EXISTS competition String AFTER game_id;
+
+-- El grupo permite filtrar una liga por su subgrupo (E-A, ESTE, Unico...).
+ALTER TABLE feb.jugadores ADD COLUMN IF NOT EXISTS `group` String AFTER competition;
+ALTER TABLE feb.partidos  ADD COLUMN IF NOT EXISTS `group` String AFTER competition;

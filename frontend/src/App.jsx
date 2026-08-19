@@ -11,7 +11,8 @@ export default function App() {
   const navigate = useNavigate();
   const [source, setSource] = useState(null);
 
-  const openPlayer = useCallback((slug) => navigate(`/jugador/${slug}`), [navigate]);
+  const openPlayer = useCallback(
+    (slug, context) => navigate(href.player(slug, context).slice(1)), [navigate]);
   const handleSource = useCallback((value) => setSource(value), []);
 
   let page;
@@ -22,7 +23,10 @@ export default function App() {
     page = <Dashboard onNavigate={openPlayer} onSource={handleSource} />;
   } else if (route.name === 'player') {
     activeNav = 'players';
-    page = <PlayerPage slug={route.slug} meta={DEFAULT_CONTEXT} onSource={handleSource} />;
+    page = (
+      <PlayerPage slug={route.slug} meta={DEFAULT_CONTEXT}
+                  context={route.context} onSource={handleSource} />
+    );
   } else {
     activeNav = null;
     page = (

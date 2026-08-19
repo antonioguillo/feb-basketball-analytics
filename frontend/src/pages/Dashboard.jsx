@@ -30,12 +30,12 @@ function PageHead({ meta }) {
   );
 }
 
-function LeaderRow({ player, max, onOpen }) {
+function LeaderRow({ player, max, onOpen, context }) {
   return (
-    <tr className="is-clickable" onClick={() => onOpen(player.slug)}>
+    <tr className="is-clickable" onClick={() => onOpen(player.slug, context)}>
       <td className="is-left">
         <a
-          href={href.player(player.slug)}
+          href={href.player(player.slug, context)}
           style={{ color: 'var(--ink)', fontWeight: 500 }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -91,6 +91,10 @@ export default function Dashboard({ onNavigate, onSource }) {
   }
 
   const { meta, summary, leaders, recentGames } = data;
+  // La competición y la temporada mostradas acompañan a cada enlace: la ficha
+  // de un jugador solo tiene sentido dentro de su competición.
+  const contexto = { competition: meta.competitionKey, season: meta.seasonKey,
+                     group: meta.groupKey };
   const shown = leaders.slice(0, LEADERS_SHOWN);
   const maxVal = shown.length ? shown[0].perGame.val : 1;
 
@@ -114,7 +118,7 @@ export default function Dashboard({ onNavigate, onSource }) {
           hint={`Valoración media por partido · mínimo 6 partidos y 15 minutos`}
           action={
             <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
-              {leaders.length} jugadores elegibles
+              {data.leadersTotal ?? leaders.length} jugadores elegibles
             </span>
           }
         >
@@ -135,7 +139,8 @@ export default function Dashboard({ onNavigate, onSource }) {
               </thead>
               <tbody>
                 {shown.map((player) => (
-                  <LeaderRow key={player.slug} player={player} max={maxVal} onOpen={onNavigate} />
+                  <LeaderRow key={player.slug} player={player} max={maxVal}
+                             onOpen={onNavigate} context={contexto} />
                 ))}
               </tbody>
             </table>

@@ -47,10 +47,10 @@ def load(table):
     total = _query(f"SELECT count() FROM {src}").strip()
 
     if table == "jugadores":
-        cols = ("game_id, competition, year, game_date, jersey, player_name, team, is_home, "
+        cols = ("game_id, competition, `group`, year, game_date, jersey, player_name, team, is_home, "
                 "minutes, points, "
                 "t2m, t2a, t3m, t3a, ftm, fta, reb, ast, stl, blk, to, pf, plus_minus, val")
-        sel = (f"toUInt32(game_id), competition, toUInt16(year), game_date, toUInt8(jersey), player_name, "
+        sel = (f"toUInt32(game_id), competition, `group`, toUInt16(year), game_date, toUInt8(jersey), player_name, "
                f"team, toUInt8(is_home), "
                f"toFloat32(minutes), toUInt16(points), toUInt8(t2m), toUInt8(t2a), "
                f"toUInt8(t3m), toUInt8(t3a), toUInt8(ftm), toUInt8(fta), toUInt8(reb), "
@@ -76,9 +76,9 @@ def load(table):
                f"toUInt8(tot_reb), toUInt8(ast), toUInt8(stl), toUInt8(to), toUInt8(blk), "
                f"toUInt8(pf)")
     elif table == "partidos":
-        cols = ("game_id, competition, year, date, game_date, home_team, away_team, home_score, "
+        cols = ("game_id, competition, `group`, year, date, game_date, home_team, away_team, home_score, "
                 "away_score, total_points, winner")
-        sel = (f"toUInt32(game_id), competition, toUInt16(year), date, game_date, home_team, away_team, "
+        sel = (f"toUInt32(game_id), competition, `group`, toUInt16(year), date, game_date, home_team, away_team, "
                f"toUInt16(home_score), toUInt16(away_score), toUInt16(total_points), winner")
     else:
         raise ValueError(f"Tabla desconocida: {table}")

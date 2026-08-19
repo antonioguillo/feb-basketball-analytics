@@ -431,6 +431,127 @@ Documentación interactiva en http://localhost:8000/docs.
 | Endpoint | Devuelve |
 |---|---|
 | `GET /api/health` | estado de la conexión con ClickHouse |
+| `GET /api/competitions` | qué hay cargado: competiciones, temporadas y grupos |
+| `GET /api/dashboard?competition=&season=&group=&limit=&offset=` | `{ meta, summary, leaders[], leadersTotal, recentGames[] }` |
+| `GET /api/players/<slug>?competition=&season=&group=` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
+
+**Una respuesta habla siempre de una sola competición.** Sumar la Tercera FEB
+masculina y la LF Endesa en un mismo ranking no significa nada, así que cuando
+no se indica competición se elige la que más partidos tiene en esa temporada y
+`meta` dice cuál. `group` filtra de verdad; si se omite, `meta.group` anuncia
+cuántos grupos entran en la respuesta.
+
+Configuración por entorno: `CH_URL` (por defecto `http://localhost:8123`),
+`CH_USER`, `CH_PASSWORD`, `SLUG_CACHE_TTL`.
+
+**Identificador de jugador**: las tablas `feb.*` no tienen id — el acta de la
+FEB solo publica el nombre. El slug se deriva con `src/naming.py:player_slug`,
+que es la definición canónica, y se resuelve contra un índice en memoria por
+competición y temporada.
+
+Los valores viajan siempre como parámetros de ClickHouse (`{nombre:Tipo}`),
+nunca interpolados en el SQL.
+
+### Rendimiento
+
+Dos detalles que valen más que cualquier optimización de las consultas:
+
+- **Un solo cliente HTTP para todo el proceso.** Crear uno por consulta costaba
+  838 ms frente a 8 ms reutilizándolo; como la ficha de un jugador lanza seis
+  consultas, era la diferencia entre 4 s y 140 ms.
+- **Índice de slugs cacheado** (`SLUG_CACHE_TTL`, 15 min por defecto): resolver
+  un slug pasa de 809 ms a 0,01 ms, y el coste ya no crece con el histórico.
+
+Los líderes se paginan (`limit`, `offset`; 50 por defecto). Sin paginar, una
+temporada devolvía 243 jugadores y 82 KB en cada carga.
+
+## Frontend (React + Vite)
+
+Aplicación de scouting con dos pantallas: **Dashboard** del grupo y **ficha de
+jugador** con mapa de tiro.
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:3000
+npm run build    # dist/
+npm run check    # render de los componentes con datos reales, sin navegador
+```
+
+`npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
+`VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
+ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
+2025/2026 — y lo anuncia con un aviso permanente, de modo que nunca se
+presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
+import dinámico: no entran en el bundle inicial.
+
+## Procesado incremental
+
+Las capas están particionadas por **competición y temporada**:
+
+```
+bronze/players/competition=tercerafeb/year=2025/...
+gold/fact_tiros/competition=lfendesa/year=2024/...
+```
+
+Acotando la ejecución solo se reprocesan esas particiones, en vez del histórico
+entero. Con `partitionOverwriteMode=dynamic`, la escritura toca únicamente las
+particiones presentes en los datos escritos:
+
+```bash
+# Solo la temporada en curso de una liga
+FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh bronze
+FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh silver
+
+# Reconstrucción completa (obligatoria si cambia el particionado o los tipos)
+FEB_REBUILD=1 ./run_pipeline.sh bronze
+```
+
+> `year` es la **temporada**, no el año natural. La 2025/2026 se juega entre
+> octubre de 2025 y mayo de 2026; derivar el año de la fecha del partido partía
+> cada temporada en dos particiones. El año natural se conserva aparte en
+> `bronze_games.calendar_year`.
+
+### Mantenimiento del lago
+
+```bash
+./run_pipeline.sh vacuum                              # retira versiones antiguas de Delta
+python scripts/migrar_raw.py                          # plan de limpieza de raw
+python scripts/migrar_raw.py --apply
+python scripts/migrar_raw.py --limpiar-marcadores --apply
+```
+
+`scripts/migrar_raw.py` retira de raw lo que no encaja en el particionado
+—ficheros que no son partidos, fichas de encuentros sin jugar y claves ad-hoc
+como `partido_suelto` o `group=ungrouped`— y unifica taxonomías antiguas. Por
+defecto solo enseña el plan; lo que borra teniendo datos lo guarda antes en
+`data/backup_raw/`.
+
+`--limpiar-marcadores` retira los objetos de cero bytes que MinIO deja como
+carpetas: tras un VACUUM hacen creer que sigue habiendo datos de una
+competición ya retirada.
+
+### Credenciales de ClickHouse
+
+Sin contraseña, la imagen oficial solo admite al usuario `default` desde dentro
+del contenedor y responde a cualquier petición del host con un
+«Authentication failed» que despista. El compose fija una:
+
+```bash
+CH_USER=default CH_PASSWORD=feb        # valores por defecto, cambiables por entorno
+```
+
+## API REST (`api.py`)
+
+```bash
+./run_pipeline.sh api          # o: uvicorn api:app --reload --port 8000
+```
+
+Documentación interactiva en http://localhost:8000/docs.
+
+| Endpoint | Devuelve |
+|---|---|
+| `GET /api/health` | estado de la conexión con ClickHouse |
 | `GET /api/dashboard?season=&group=` | `{ meta, summary, leaders[], recentGames[] }` |
 | `GET /api/players/<slug>` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
 

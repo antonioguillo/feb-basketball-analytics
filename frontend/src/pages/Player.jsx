@@ -165,8 +165,9 @@ function GameLog({ games, maxVal }) {
   );
 }
 
-export default function Player({ slug, meta, onSource }) {
-  const { status, data, source, error, retry } = useResource(() => getPlayer(slug), [slug]);
+export default function Player({ slug, meta, context, onSource }) {
+  const { status, data, source, error, retry } = useResource(
+    () => getPlayer(slug, context), [slug, context?.competition, context?.season, context?.group]);
 
   useEffect(() => {
     if (source) onSource?.(source);
@@ -184,20 +185,22 @@ export default function Player({ slug, meta, onSource }) {
   }
 
   const player = data;
-  const context = player.meta ?? meta;
+  // La cabecera se pinta con el `meta` que trae la respuesta, que describe la
+  // competición realmente servida; el prop solo es el valor por defecto.
+  const cabecera = player.meta ?? meta;
   const madeShots = player.shots.filter((shot) => shot.made).length;
 
   return (
     <>
       <div className="row" style={{ gap: 8, fontSize: '0.8125rem', marginBottom: 20 }}>
-        <a href={href.dashboard()} style={{ color: 'var(--muted)' }}>
+        <a href={href.dashboard(context)} style={{ color: 'var(--muted)' }}>
           Dashboard
         </a>
         <span style={{ color: 'var(--faint)' }}>/</span>
         <span style={{ color: 'var(--ink)' }}>{player.name}</span>
       </div>
 
-      <Identity player={player} meta={context} />
+      <Identity player={player} meta={cabecera} />
 
       <div
         className="grid grid--kpi-6"

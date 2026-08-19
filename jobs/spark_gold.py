@@ -94,7 +94,7 @@ def build_dim_players():
     dim = df.groupBy("competition", "player_name", "year").agg(
         # Un jugador puede cambiar de equipo a mitad de temporada: se queda el
         # ultimo con el que aparece, que es el relevante para ojearlo hoy.
-        F.max(F.struct("game_date", "team")).alias("_last"),
+        F.max(F.struct("game_date", "team", "group")).alias("_last"),
         F.countDistinct("game_id").alias("games"),
         F.sum("minutes").alias("total_minutes"),
         F.sum("points").alias("total_points"),
@@ -122,7 +122,8 @@ def build_dim_players():
         F.max("val").alias("best_val"),
     )
 
-    dim = dim.withColumn("team", F.col("_last.team")).drop("_last")
+    dim = (dim.withColumn("team", F.col("_last.team"))
+          .withColumn("group", F.col("_last.group")).drop("_last"))
 
     dim = (dim.withColumn("two_point_pct", _ratio("total_2pm", "total_2pa"))
               .withColumn("three_point_pct", _ratio("total_3pm", "total_3pa"))
@@ -166,7 +167,7 @@ def build_fact_partidos():
     players = scoped(spark.read.format(TABLE_FORMAT).load(SILVER + "players"))
 
     home = (players.filter(F.col("is_home"))
-            .groupBy("game_id", "competition", "year", "date", "game_date",
+            .groupBy("game_id", "competition", "year", "group", "date", "game_date",
                      "home_team", "away_team")
             .agg(F.sum("points").alias("home_score")))
     away = (players.filter(~F.col("is_home"))
