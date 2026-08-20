@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import re
 import sys
@@ -188,6 +189,43 @@ def scrape_grupo_e(upload_raw: bool = False, limit: int = None,
 _thread_local = threading.local()
 
 
+CACHE_ENLACES = Path(__file__).parent / "data" / "cache_enlaces.json"
+
+
+def _cargar_cache() -> dict:
+    if CACHE_ENLACES.exists():
+        try:
+            return json.loads(CACHE_ENLACES.read_text(encoding="utf-8"))
+        except ValueError:
+            pass          # caché corrupta: se reconstruye sola
+    return {}
+
+
+def _enlaces_del_grupo(scraper, cache: dict, competition_name: str, competition_id: int,
+                       season: str, group_id: str, max_journeys, temporada_actual: str):
+    """Enlaces de un grupo, recordando los de temporadas ya cerradas.
+
+    Descubrirlos cuesta un postback por jornada: unos 28 segundos por grupo. Al
+    reanudar una descarga interrumpida hay que repetir ese paseo por todo lo ya
+    bajado antes de llegar a lo que falta, y en el histórico completo eso son
+    horas. El calendario de una temporada pasada ya no cambia, así que se
+    guarda; la temporada en curso se vuelve a consultar siempre.
+    """
+    clave = f"{competition_name}|{season}|{group_id}"
+    cerrada = season < temporada_actual and not max_journeys
+    if cerrada and clave in cache:
+        return cache[clave], True
+
+    enlaces = scraper.get_game_links_by_group(
+        competition_id, season, group_id, max_journeys=max_journeys)
+
+    if cerrada and enlaces:
+        cache[clave] = enlaces
+        CACHE_ENLACES.parent.mkdir(parents=True, exist_ok=True)
+        CACHE_ENLACES.write_text(json.dumps(cache), encoding="utf-8")
+    return enlaces, False
+
+
 def _scraper_del_hilo(delay: float) -> FEBBasketballScraper:
     """Un scraper por hilo: cada uno con su sesión HTTP y su token cacheado."""
     scraper = getattr(_thread_local, "scraper", None)
@@ -264,6 +302,8 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
 
     scraped = skipped = failed = pending = 0
     inicio = time.monotonic()
+    cache = _cargar_cache()
+    temporada_actual = _temporada_en_curso()
     for season in seasons:
         try:
             groups = scraper.get_groups(competition.id, season)
@@ -281,12 +321,14 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
         for group_id, group_name in groups:
             slug = group_slug(group_name)
             try:
-                links = scraper.get_game_links_by_group(
-                    competition.id, season, group_id, max_journeys=max_journeys)
+                links, de_cache = _enlaces_del_grupo(
+                    scraper, cache, competition_name, competition.id, season,
+                    group_id, max_journeys, temporada_actual)
             except Exception as e:
-                print(f"  [{slug}] error listando partidos: {str(e)[:80]}")
+                print(f"  [{slug}] error listando partidos: {str(e)[:80]}", flush=True)
                 continue
-            print(f"  [{slug}] {len(links)} partidos", flush=True)
+            print(f"  [{slug}] {len(links)} partidos{' (recordados)' if de_cache else ''}",
+                  flush=True)
 
             pendientes = [u for u in links
                           if re.search(r'(?:partido/|p=)(\d+)', u).group(1) not in existing]
@@ -304,8 +346,17 @@ def scrape_historico(competition_name: str, seasons: list = None, upload_raw: bo
                         pending += 1
                         continue
                     if store:
-                        store.upload_game(game, competition=competition_name,
-                                          year=season, group=slug)
+                        try:
+                            store.upload_game(game, competition=competition_name,
+                                              year=season, group=slug)
+                        except Exception as error:
+                            # Se pierde ese partido, no las horas de trabajo: la
+                            # siguiente pasada lo recoge, porque no llegó a raw.
+                            print(f"    partido {game_id}: no se pudo subir "
+                                  f"({type(error).__name__}); se reintentará en la "
+                                  f"próxima ejecución", flush=True)
+                            failed += 1
+                            continue
                         existing.add(game_id)
                     scraped += 1
                     if scraped % 100 == 0:

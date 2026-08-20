@@ -45,3 +45,4 @@ design/feb-scouting-interface.html
 
 # Copia de seguridad local que deja scripts/migrar_raw.py
 data/backup_raw/
+data/cache_enlaces.json

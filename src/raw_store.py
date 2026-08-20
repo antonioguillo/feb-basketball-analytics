@@ -3,12 +3,16 @@ Cada partido se guarda en raw/competicion=<name>/anio=<year>/partido=<id>.json
 para permitir reprocesamientos y auditoría."""
 import io
 import json
+import logging
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .scraper import Game
+
+logger = logging.getLogger(__name__)
 
 
 class RawStore:
@@ -58,17 +62,37 @@ class RawStore:
         }
 
     def upload_game(self, game: Game, competition: str = "partido_suelto", year: str = "2026",
-                    group: str = "ungrouped") -> str:
+                    group: str = "ungrouped", intentos: int = 4) -> str:
+        """Sube un partido a raw, reintentando los fallos pasajeros.
+
+        Una descarga del histórico dura horas, y en ese tiempo el reloj del
+        contenedor de MinIO se desincroniza del anfitrión cada vez que el equipo
+        suspende. La firma de S3 rechaza entonces la petición con
+        `RequestTimeTooSkewed` y, sin reintento, una sola de esas tira abajo un
+        trabajo de veinte horas. El desfase se corrige solo en cuanto Docker
+        vuelve a sincronizar, así que basta con esperar y repetir.
+        """
         data = self._game_to_dict(game)
         data["meta"]["group"] = group
         key = f"competition={competition}/year={year}/group={group}/game_id={game.id}.json"
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=json.dumps(data, ensure_ascii=False).encode("utf-8"),
-            ContentType="application/json",
-        )
-        return f"s3://{self.bucket}/{key}"
+        cuerpo = json.dumps(data, ensure_ascii=False).encode("utf-8")
+
+        for intento in range(1, intentos + 1):
+            try:
+                self.client.put_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Body=cuerpo,
+                    ContentType="application/json",
+                )
+                return f"s3://{self.bucket}/{key}"
+            except Exception as error:
+                if intento == intentos:
+                    raise
+                espera = 5 * 2 ** (intento - 1)      # 5 s, 10 s, 20 s
+                logger.warning("Fallo al subir %s (%s). Reintento %d/%d en %ds",
+                               key, type(error).__name__, intento, intentos - 1, espera)
+                time.sleep(espera)
 
     def list_games(self, competition: Optional[str] = None, year: Optional[str] = None) -> list:
         """Lista las claves de raw bajo el prefijo dado.
