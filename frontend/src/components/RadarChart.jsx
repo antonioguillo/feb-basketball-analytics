@@ -143,16 +143,24 @@ export default function RadarChart({ players, pool }) {
           const p = point(axisIndex, (v.pct ?? 0) / 100);
           const key = `${s.player.slug}-${axisIndex}`;
           const isHovered = hovered?.key === key;
+          const axis = RADAR_AXES[axisIndex];
+          const valueLabel = v.raw === null ? 'sin dato' : axis.format(v.raw);
+          const pctLabel = v.pct !== null ? `, percentil ${v.pct}` : '';
           return (
             <g key={key}>
-              {/* Diana de 28px: el punto visible es más pequeño de lo que conviene acertar con el ratón. */}
+              {/* Diana de 28px: el punto visible es más pequeño de lo que conviene
+                  acertar con el ratón o el foco de teclado. */}
               <circle
                 cx={p.x}
                 cy={p.y}
                 r={14}
                 fill="transparent"
-                onMouseEnter={() => setHovered({ key, s, axis: RADAR_AXES[axisIndex], value: v, p })}
+                tabIndex={0}
+                aria-label={`${s.player.name}, ${axis.label}: ${valueLabel}${pctLabel}`}
+                onMouseEnter={() => setHovered({ key, s, axis, value: v, p })}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered({ key, s, axis, value: v, p })}
+                onBlur={() => setHovered(null)}
               />
               <circle
                 cx={p.x}

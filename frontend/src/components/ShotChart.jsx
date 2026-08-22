@@ -65,6 +65,8 @@ export default function ShotChart({ shots = [] }) {
           {ordered.map((shot, index) => {
             const { cx, cy } = projectShot(shot);
             const isHovered = hovered?.index === index;
+            const label = `${shot.made ? 'Anotado' : 'Fallado'}, `
+              + `${ZONE_LABEL[shot.zone] ?? shot.zone}, ${shot.dist?.toFixed(1)} m`;
             return shot.made ? (
               <circle
                 key={index}
@@ -74,8 +76,12 @@ export default function ShotChart({ shots = [] }) {
                 fill="var(--accent)"
                 stroke="var(--surface)"
                 strokeWidth="4"
+                tabIndex={0}
+                aria-label={label}
                 onMouseEnter={() => setHovered({ index, shot, cx, cy })}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered({ index, shot, cx, cy })}
+                onBlur={() => setHovered(null)}
               />
             ) : (
               <circle
@@ -86,8 +92,12 @@ export default function ShotChart({ shots = [] }) {
                 fill="none"
                 stroke="var(--shot-miss)"
                 strokeWidth="5"
+                tabIndex={0}
+                aria-label={label}
                 onMouseEnter={() => setHovered({ index, shot, cx, cy })}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => setHovered({ index, shot, cx, cy })}
+                onBlur={() => setHovered(null)}
               />
             );
           })}

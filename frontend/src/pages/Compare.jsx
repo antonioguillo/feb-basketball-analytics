@@ -97,7 +97,7 @@ export function CompareTable({ players, context, onRemove }) {
                     <button
                       type="button"
                       className="chip"
-                      style={{ padding: '2px 8px', fontSize: '0.6875rem', fontWeight: 400 }}
+                      style={{ padding: '6px 10px', fontSize: '0.75rem', fontWeight: 400, minHeight: 24 }}
                       onClick={() => onRemove(player.slug)}
                       aria-label={`Quitar a ${player.name} de la comparativa`}
                     >
