@@ -177,6 +177,13 @@ def build_playbyplay(df):
         F.col("line.action").alias("action"),
         F.col("line.scoreA").alias("scoreA"),
         F.col("line.scoreB").alias("scoreB"),
+        # Quién protagoniza la jugada. Sin esto el play-by-play solo sirve para
+        # el marcador corriendo: no se puede saber qué jugador tiró, asistió,
+        # entró a pista o cometió la falta. Van tipados a int ya en bronze
+        # (a diferencia de num/quarter/team, que se dejan tal cual) porque son
+        # ids numéricos sin formato que preservar.
+        F.col("line.idPlayer").cast("int").alias("player_id"),
+        F.col("line.idTeam").cast("int").alias("team_id"),
     ))
     save(pbp, "playbyplay")
     print(f"bronze_playbyplay: {pbp.count()} filas")

@@ -57,10 +57,19 @@ def load(table):
                f"toUInt8(ast), toUInt8(stl), toUInt8(blk), toUInt8(to), toUInt8(pf), "
                f"toInt16(plus_minus), toInt16(val)")
     elif table == "playbyplay":
-        cols = ("game_id, competition, year, quarter, time, text, team, action, scoreA, scoreB")
+        cols = ("game_id, competition, year, quarter, time, text, team, action, scoreA, scoreB, "
+                "player_id, team_id, made, shot_value, foul_type, sub_direction, assisted_by_player_id, "
+                "player_name, assisted_by_name")
         sel = (f"toUInt32(game_id), competition, toUInt16(year), toUInt8(quarter), time, text, "
                f"ifNull(toUInt8(team), 0), action, "
-               f"ifNull(toUInt16(scoreA), 0), ifNull(toUInt16(scoreB), 0)")
+               f"ifNull(toUInt16(scoreA), 0), ifNull(toUInt16(scoreB), 0), "
+               # Nullable de verdad (a diferencia de team/scoreA/scoreB arriba):
+               # NULL aquí significa "esta jugada no tiene jugador/resultado
+               # asociado", no un cero que se pueda confundir con un id real.
+               f"CAST(player_id AS Nullable(UInt32)), CAST(team_id AS Nullable(UInt32)), "
+               f"CAST(made AS Nullable(UInt8)), CAST(shot_value AS Nullable(UInt8)), "
+               f"foul_type, sub_direction, CAST(assisted_by_player_id AS Nullable(UInt32)), "
+               f"player_name, assisted_by_name")
     elif table == "tiros":
         cols = ("game_id, competition, year, quarter, time, player, team, made, x, y, "
                 "shot_distance_m, zone, is_three, shot_points")

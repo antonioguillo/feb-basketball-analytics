@@ -8,7 +8,7 @@ Salida en s3a://silver/ (Delta).
 """
 import os
 import sys
-from pyspark.sql import SparkSession, functions as F
+from pyspark.sql import SparkSession, Window, functions as F
 
 MINIO_ENDPOINT = sys.argv[1] if len(sys.argv) > 1 else "http://minio:9000"
 ACCESS_KEY = sys.argv[2] if len(sys.argv) > 2 else "minioadmin"
@@ -169,8 +169,109 @@ def clean_games():
 
 def clean_playbyplay():
     df = scoped(spark.read.format(TABLE_FORMAT).load(BRONZE + "playbyplay"))
-    df = _to_int(df, ["num", "quarter", "team", "scoreA", "scoreB"])
+    df = _to_int(df, ["num", "quarter", "team", "scoreA", "scoreB", "player_id", "team_id"])
     df = df.filter(F.col("text").isNotNull()).dropDuplicates(["game_id", "num"])
+
+    # made/shot_value/foul_type/sub_direction se derivan del texto del acta, no
+    # de los logParamN crudos: su posición cambia de significado según el tipo
+    # de jugada (logParam4 es "encestado" en un tiro pero "a quién le pitan la
+    # falta" en una falta), mientras que el texto sigue una plantilla fija.
+    df = df.withColumn(
+        "made",
+        F.when(~F.col("action").isin("shoot", "fthrow"), F.lit(None))
+         .when(F.col("text").contains("ANOTADO"), F.lit(1))
+         .when(F.col("text").contains("FALLADO"), F.lit(0))
+         .otherwise(F.lit(None)).cast("int"))
+    df = df.withColumn(
+        "shot_value",
+        F.when(F.col("action").isin("shoot", "fthrow"),
+               F.regexp_extract(F.col("text"), r"TIRO DE (\d)", 1))
+         .otherwise(F.lit(None)).cast("int"))
+    df = df.withColumn(
+        "foul_type",
+        F.when(F.col("action") != "foul", F.lit(None))
+         .when(F.col("text").contains("Descalificante"), F.lit("descalificante"))
+         # Se compara por "cnica" en vez de "Técnica": evita depender de que la
+         # tilde sobreviva intacta a cualquier codificación intermedia.
+         .when(F.col("text").contains("cnica"), F.lit("tecnica"))
+         .otherwise(F.lit("personal")))
+    df = df.withColumn(
+        "sub_direction",
+        F.when(F.col("action") != "subst", F.lit(None))
+         .when(F.col("text").contains("Entra"), F.lit("in"))
+         .otherwise(F.lit("out")))
+
+    # Asistencia: la FEB no enlaza el evento "assist" con la canasta que
+    # reparte, pero le sigue siempre, en el mismo equipo y el mismo instante
+    # de juego, a la jugada "shoot" que anota — no la precede: el acta apunta
+    # primero el tiro y acredita la asistencia justo después. `num` es el
+    # orden cronológico real (el JSON crudo lo lista del último suceso al
+    # primero, así que num ascendente = avance del partido).
+    orden = Window.partitionBy("game_id").orderBy(F.col("num"))
+    next_cols = ["_next_action", "_next_player", "_next_team", "_next_time"]
+    for col in next_cols:
+        source = {"_next_action": "action", "_next_player": "player_id",
+                  "_next_team": "team", "_next_time": "time"}[col]
+        df = df.withColumn(col, F.lead(F.col(source)).over(orden))
+    df = df.withColumn(
+        "assisted_by_player_id",
+        F.when(
+            (F.col("action") == "shoot") & (F.col("made") == 1)
+            & (F.col("_next_action") == "assist")
+            & (F.col("_next_team") == F.col("team"))
+            & (F.col("_next_time") == F.col("time")),
+            F.col("_next_player"),
+        ).otherwise(F.lit(None)).cast("int"))
+    df = df.drop(*next_cols)
+
+    # Nombre del jugador: el `player_id` del acta (bronze_players) no sirve
+    # para enlazar — es la URL del EQUIPO, repetida en todos sus jugadores,
+    # no un id por jugador (bug del origen, no de este pipeline). Sin un id
+    # compartido, se cruza por partido: se saca "inicial. apellidos" del
+    # texto de la jugada ("D. NGUBA ETAME") y se empareja con "apellidos,
+    # nombre" del acta ("NGUBA ETAME, DAVID") dentro del mismo equipo. Si dos
+    # compañeros comparten inicial y apellidos, se descarta el cruce para ese
+    # jugador antes que arriesgarse a poner el nombre equivocado.
+    etiqueta = F.regexp_extract(F.col("text"), r"\)\s*([^:]+):", 1)
+    nombres_pbp = (
+        df.filter((F.col("player_id").isNotNull()) & (etiqueta != ""))
+          .select(
+              "game_id", "player_id",
+              (F.col("team") == 1).alias("is_home"),
+              F.upper(F.substring(etiqueta, 1, 1)).alias("inicial"),
+              F.upper(F.trim(F.regexp_replace(etiqueta, r"^\S+\.\s*", ""))).alias("apellidos"),
+          )
+          .dropDuplicates(["game_id", "player_id"])
+    )
+
+    acta = spark.read.format(TABLE_FORMAT).load(SILVER + "players").select(
+        "game_id", "is_home", "player_name",
+        F.upper(F.trim(F.element_at(F.split(F.col("player_name"), ","), 1))).alias("apellidos_acta"),
+        F.upper(F.substring(F.trim(F.element_at(F.split(F.col("player_name"), ","), 2)), 1, 1)).alias("inicial_acta"),
+    ).dropDuplicates(["game_id", "is_home", "player_name"])
+
+    cruce = nombres_pbp.join(
+        acta,
+        (nombres_pbp.game_id == acta.game_id) & (nombres_pbp.is_home == acta.is_home)
+        & (nombres_pbp.inicial == acta.inicial_acta) & (nombres_pbp.apellidos == acta.apellidos_acta),
+        "inner",
+    ).select(nombres_pbp.game_id, nombres_pbp.player_id, acta.player_name)
+
+    resueltos = (cruce.groupBy("game_id", "player_id")
+                 .agg(F.countDistinct("player_name").alias("n"), F.first("player_name").alias("player_name"))
+                 .filter(F.col("n") == 1)
+                 .select("game_id", "player_id", "player_name"))
+
+    df = df.join(resueltos, ["game_id", "player_id"], "left")
+    df = df.join(
+        resueltos.select(
+            F.col("game_id"),
+            F.col("player_id").alias("assisted_by_player_id"),
+            F.col("player_name").alias("assisted_by_name"),
+        ),
+        ["game_id", "assisted_by_player_id"], "left",
+    )
+
     _save(df, SILVER + "playbyplay")
     print(f"silver_playbyplay: {df.count()}")
 
