@@ -279,6 +279,43 @@ y `game_date` (Date, para ordenar); `tiros` llega desde `gold/fact_tiros` con
 `zone`, `shot_distance_m`, `is_three` y `shot_points` ya calculados, de modo que
 la geometría de la cancha se define en un solo sitio.
 
+### `playbyplay`: quién protagoniza cada jugada
+
+Sin más, `playbyplay` solo sirve para reconstruir el marcador corriendo. Encima
+del texto crudo del acta (`text`, `action`, `scoreA`/`scoreB`), `jobs/spark_silver.py:clean_playbyplay()`
+deriva columnas que identifican al protagonista y el resultado de la jugada:
+
+| Columna | Contenido |
+|---|---|
+| `player_id` / `team_id` | ids numéricos tal como vienen del JSON de la jugada (no del acta de caja: ver más abajo) |
+| `made` / `shot_value` | si el tiro entró y su valor (2/3/1) — solo en `shoot`/`fthrow` |
+| `foul_type` | `personal` / `tecnica` / `descalificante` — solo en `foul` |
+| `sub_direction` | `in` / `out` — solo en `subst` |
+| `assisted_by_player_id` / `assisted_by_name` | quién asiste, en la fila del `shoot` anotado |
+| `player_name` / `assisted_by_name` | nombre resuelto en formato de acta (`APELLIDOS, NOMBRE`) |
+
+**Por qué el nombre se resuelve por texto y no por id**: el `idPlayer` que trae
+el acta de caja (`bronze_players`) es en realidad la URL del **equipo**
+(bug del scraper de origen, no de este pipeline), repetida en todos sus
+jugadores — no sirve para enlazar. En su lugar, se extrae «inicial. apellidos»
+del propio texto de la jugada («X. ALMIRALL CANALS: TIRO DE 2 ANOTADO») y se
+empareja contra `silver/players` por partido + lado (local/visitante) +
+apellidos normalizados (sin acentos, sin conectores catalanes/castellanos
+I/Y/DE/DEL); la inicial solo desempata cuando dos jugadores del mismo equipo
+comparten apellido. Si el cruce da más de un nombre posible, se descarta antes
+que arriesgar un nombre equivocado — de ahí que la resolución sea del **99,2 %**
+de las jugadas con jugador, no el 100 %.
+
+**Por qué la asistencia se busca hacia adelante**: el evento `assist` no trae
+un campo que lo enlace con la canasta que reparte; se resuelve por adyacencia
+(mismo equipo, mismo instante, la jugada *siguiente*, no la anterior — es
+fácil asumir lo contrario) con una window function ordenada por el orden
+cronológico real del partido: el JSON crudo lista las jugadas del último
+suceso al primero, así que `num` ascendente es avance del partido, no al revés.
+
+Sobre estas columnas se apoyan tres cortes en `api/` (`/api/clutch`,
+`/api/assist-network`, `/api/fouls`) — ver la sección **API REST** más abajo.
+
 Al actualizar un despliegue anterior, `01_schema.sql` incluye los
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`: `CREATE TABLE IF NOT EXISTS` no
 añade columnas a una tabla que ya existe.
@@ -321,61 +358,50 @@ FROM feb.equipos_partido;
 feb-basketball-analytics/
 ├── src/
 │   ├── __init__.py           # Exports
-│   ├── models.py             # Competiciones FEB
-│   ├── scraper.py            # Scraper FEB (web + API interna)
-│   ├── pipeline.py           # Pipeline de ingesta a parquet local
-│   └── raw_store.py          # Subida de raw a MinIO (S3)
-├── jobs/
-│   ├── spark_bronze.py       # raw -> bronze (Delta)
-│   ├── spark_silver.py       # bronze -> silver
-│   ├── spark_gold.py         # silver -> gold (dims/facts)
-│   ├── export_clickhouse.py  # silver/gold Delta -> staging (parquet plano)
-│   └── load_clickhouse.py    # staging -> ClickHouse
+│   ├── models.py             # Catálogo de competiciones FEB (COMPETITIONS)
+│   ├── naming.py              # player_slug/team_slug/display_name — definición
+│   │                           #   canónica de los identificadores de la API
+│   ├── scraper.py             # Scraper FEB (web + API interna)
+│   ├── pipeline.py            # Pipeline de ingesta a parquet local
+│   └── raw_store.py           # Subida/lectura de raw en MinIO (S3)
+├── jobs/                      # Jobs Spark + carga a ClickHouse
+│   ├── spark_bronze.py        # raw -> bronze (Delta, tipado)
+│   ├── spark_silver.py        # bronze -> silver (limpio, enriquecido)
+│   ├── spark_gold.py          # silver -> gold (dims/facts, esquema estrella)
+│   ├── export_clickhouse.py   # silver/gold Delta -> staging (parquet plano)
+│   ├── load_clickhouse.py     # staging -> ClickHouse (feb.*)
+│   └── vacuum_delta.py        # VACUUM 0 sobre las tablas Delta
+├── scripts/                   # Orquestación de más alto nivel que run_pipeline.sh
+│   ├── backfill_historico.sh  # descarga masiva inicial (moderno/completo/temporadas sueltas)
+│   ├── actualizar_temporada.sh # temporada en curso + reconstruye capas (pensado para cron)
+│   ├── reconstruir_todo.sh    # encadena bronze→silver→gold→export→clickhouse, para en el primer fallo
+│   ├── migrar_raw.py          # limpieza/unificación de taxonomías antiguas en raw
+│   └── generar_fixtures.py    # regenera frontend/src/api/fixtures.json desde la API real
 ├── infra/
-│   ├── spark/Dockerfile      # Imagen Spark con JARs Delta+S3
-│   ├── clickhouse/Dockerfile # Imagen con schema init
+│   ├── spark/Dockerfile       # Imagen Spark con JARs Delta+S3
+│   ├── clickhouse/Dockerfile  # Imagen con schema init
 │   ├── clickhouse/init/01_schema.sql
-│   └── docker-wrapper.sh     # Wrapper docker.exe para WSL
-├── docker-compose.yml        # MinIO + Spark + ClickHouse
-├── run_pipeline.sh           # Orquestador de todo el flujo
-├── main.py                   # CLI de scraping (parsea argumentos y despacha)
+│   └── docker-wrapper.sh      # Wrapper docker.exe para WSL
+├── docker-compose.yml         # MinIO + Spark + ClickHouse
+├── run_pipeline.sh            # Orquestador de todo el flujo
+├── main.py                    # CLI de scraping (parsea argumentos y despacha)
 ├── scraping/
-│   └── jobs.py                # Lógica de scraping: partido/liga/histórico/actualizar
-├── api/
-│   ├── app.py                # FastAPI: endpoints
-│   ├── clickhouse.py         # Cliente HTTP y helpers de consulta
-│   ├── context.py            # Resolución de competición/temporada/grupo
-│   ├── slugs.py               # Índices slug -> nombre (jugadores/equipos)
-│   └── stats.py               # Fórmulas de estadísticas y ranking
-├── tests/
-│   └── test_scraper_parsing.py  # Tests sin red del recorrido de jornadas
-└── data/processed/           # Parquets locales (cache de scraping)
+│   └── jobs.py                 # Lógica de scraping: partido/liga/histórico/actualizar
+├── api/                        # API REST (FastAPI) — ver sección "API REST" más abajo
+│   ├── app.py                  # FastAPI: app, lifespan y endpoints principales
+│   ├── clickhouse.py           # Cliente HTTP y helpers de consulta
+│   ├── context.py              # Resolución de competición/temporada/grupo
+│   ├── slugs.py                # Índices slug -> nombre (jugadores/equipos)
+│   ├── stats.py                # Fórmulas de estadísticas y ranking
+│   ├── clutch.py                # Endpoint /api/clutch (momentos ajustados)
+│   ├── assist_network.py        # Endpoint /api/assist-network
+│   └── fouls.py                  # Endpoint /api/fouls (disciplina de faltas)
+├── frontend/                   # App React — ver sección "Frontend" más abajo
+├── tests/                      # ver sección "Tests" más abajo
+└── data/processed/             # Parquets locales (cache de scraping)
 ```
 
 ## Frontend (React + Vite)
-
-Capturas de la aplicación con datos reales en `docs/capturas/`:
-
-| Fichero | Qué muestra |
-|---|---|
-| `01-dashboard.png` | Tercera FEB 2025/2026: 367 partidos, 671 jugadores, ranking paginado |
-| `02-ficha-jugador.png` | Ficha completa con el mapa de 222 tiros reales |
-| `03-lf-endesa-sin-ranking.png` | El selector cambiando de competición, y el estado vacío cuando nadie llega al mínimo |
-| `04-movil.png` | Vista estrecha (430 px) |
-
-Se regeneran con la aplicación levantada:
-
-```bash
-./run_pipeline.sh api & ./run_pipeline.sh front &
-chrome --headless=new --window-size=1440,1250 --virtual-time-budget=15000 \
-       --screenshot=docs/capturas/01-dashboard.png http://localhost:3000/
-```
-
-Aplicación de scouting con seis pantallas: **Dashboard** del grupo, **ficha de
-jugador** con mapa de tiro, **comparador** de hasta 4 jugadores (tabla y radar
-de percentiles), **clasificación** de equipos, **ficha de equipo** (plantilla
-con tiro por zona y jugador, mapa de tiro agregado, ritmo y eficiencia por
-partido).
 
 ```bash
 cd frontend
@@ -387,11 +413,84 @@ npm run check    # render de los componentes con datos reales, sin navegador
 
 `npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
 `VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
-ejemplo** de `src/api/fixtures.json` — Tercera FEB 2025/2026 completa (367
-partidos, 3 grupos), con 60 fichas de jugador y 6 de equipo, generadas desde la
-API real — y lo anuncia con un aviso permanente, de modo que nunca se
+ejemplo** de `src/api/fixtures.json` — Tercera FEB 2025/2026 completa (615
+partidos, 13 grupos), con 60 fichas de jugador y 6 de equipo, generadas desde
+la API real — y lo anuncia con un aviso permanente, de modo que nunca se
 presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
-import dinámico: no entran en el bundle inicial.
+import dinámico: no entran en el bundle inicial (pesan >2 MB con el histórico
+actual).
+
+### Las cuatro secciones
+
+La navegación tiene cuatro items — cada uno agrupa lo que antes eran pantallas
+sueltas, para que la barra no crezca un item por cada corte de datos nuevo:
+
+| Sección | Ruta | Qué hay |
+|---|---|---|
+| **Ligas** (`Ligas.jsx`) | `#/` | Clasificación del grupo + resultados jornada a jornada (agrupados por fecha desde `/api/games`, con navegación anterior/siguiente) |
+| **Jugadores** (`Jugadores.jsx`) | `#/jugadores` | Ranking con pestañas **Líderes** / **Clutch** / **Faltas** — misma tabla paginada, métrica distinta según la pestaña activa |
+| **Equipos** (`Teams.jsx` → `Team.jsx`) | `#/equipos`, `#/equipo/<slug>` | Clasificación → ficha con pestañas **Resumen** (KPIs + mapa de tiro) / **Plantilla** / **Ritmo** / **Asistencias** (red de asistencias de la plantilla, sin selector propio — el equipo ya viene resuelto por la URL) |
+| **Comparar** (`Compare.jsx`) | `#/comparar?jugadores=a,b` | Buscador + tabla comparativa + radar de percentiles, hasta 4 jugadores |
+
+Aparte, `Player.jsx` (`#/jugador/<slug>`) es la ficha individual de jugador,
+enlazada desde cualquier tabla de las pantallas de arriba.
+
+Clutch, faltas y la red de asistencias vivían como pantallas propias hasta
+hace poco; se plegaron dentro de Jugadores/Equipo porque eran cortes de datos
+de jugador o de equipo, no secciones nuevas — ver el historial de commits
+(`Enriquecer el play-by-play…`, `Clutch, red de asistencias y disciplina de
+faltas…`) para el porqué completo.
+
+### Estructura
+
+```
+frontend/
+├── index.html
+├── vite.config.js            # proxy /api -> localhost:8000, alias, build
+├── ssr-check.jsx             # `npm run check`: renderiza todo fuera del navegador
+└── src/
+    ├── main.jsx               # punto de entrada, monta <App/>
+    ├── App.jsx                 # enrutado: qué página según route.name
+    ├── styles.css               # tokens de color/tipografía, único sitio con hex
+    ├── api/
+    │   ├── client.js            # capa de datos: fetch + fallback a fixtures
+    │   └── fixtures.json        # datos de ejemplo, generados desde la API real
+    ├── lib/
+    │   ├── router.js            # enrutado por hash, sin dependencias
+    │   ├── format.js            # decimal/percent/teamName/teamSlug…
+    │   ├── court.js             # geometría del mapa de tiro (mismas ctes que gold)
+    │   └── useResource.js       # hook de fetch con estado loading/ready/error
+    ├── components/
+    │   ├── Layout.jsx            # cabecera + navegación en píldora + aviso de fixtures
+    │   ├── Primitives.jsx        # Panel, StatTile, Meter, Select, ContextPicker, Pager, Tabs…
+    │   ├── Icons.jsx              # iconos SVG a mano (sin librería de iconos)
+    │   ├── ShotChart.jsx          # mapa de tiro (cancha + puntos)
+    │   ├── RadarChart.jsx         # radar de percentiles del comparador
+    │   └── AssistNetwork.jsx      # diagrama circular pasador→anotador
+    └── pages/
+        ├── Ligas.jsx               # clasificación + resultados por jornada
+        ├── Jugadores.jsx           # ranking con pestañas líderes/clutch/faltas
+        ├── Teams.jsx               # clasificación (listado de equipos)
+        ├── Team.jsx                 # ficha de equipo, con pestañas
+        ├── Player.jsx               # ficha de jugador
+        └── Compare.jsx              # comparador de hasta 4 jugadores
+```
+
+Ningún componente lleva un color en hex suelto: todo pasa por las variables
+de `styles.css`, así que un cambio de paleta es tocar un solo fichero.
+
+### Capturas (desactualizadas)
+
+`docs/capturas/` tiene 4 capturas del Dashboard/ficha de jugador **originales**,
+de antes de la reorganización a Ligas/Jugadores/Equipos — todavía sirven para
+ver el mapa de tiro y el sistema de tarjetas, pero no la navegación actual.
+Se regeneran con la aplicación levantada:
+
+```bash
+./run_pipeline.sh api & ./run_pipeline.sh front &
+chrome --headless=new --window-size=1440,1250 --virtual-time-budget=15000 \
+       --screenshot=docs/capturas/01-ligas.png http://localhost:3000/
+```
 
 ## Procesado incremental
 
@@ -461,10 +560,14 @@ Documentación interactiva en http://localhost:8000/docs.
 |---|---|
 | `GET /api/health` | estado de la conexión con ClickHouse |
 | `GET /api/competitions` | qué hay cargado: competiciones, temporadas y grupos |
-| `GET /api/dashboard?competition=&season=&group=&limit=&offset=` | `{ meta, summary, leaders[], leadersTotal, recentGames[] }` |
+| `GET /api/dashboard?competition=&season=&group=&limit=&offset=` | `{ meta, summary, leaders[], leadersTotal, recentGames[] }` — líderes por valoración, paginados |
+| `GET /api/games?competition=&season=&group=` | `{ meta, games[] }` — todos los partidos del filtro, sin paginar (el frontend los agrupa por fecha para navegar jornada a jornada) |
 | `GET /api/players/<slug>?competition=&season=&group=` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
 | `GET /api/teams?competition=&season=&group=` | `{ meta, standings[] }` — clasificación del grupo (récord y diferencial de puntos) |
 | `GET /api/teams/<slug>?competition=&season=&group=` | ficha: `standing`, `pace` (posesiones/ORTG/DRTG estimados), `gameLog[]`, `roster[]` (tiro por zona por jugador), `shots[]` |
+| `GET /api/clutch?competition=&season=&group=&limit=&offset=` | `{ meta, definition, players[], playersTotal }` — ranking en momentos ajustados del partido |
+| `GET /api/assist-network?competition=&season=&group=&team=` | `{ meta, team, nodes[], edges[] }` — quién asiste a quién; sin `team`, los pares con más asistencias de toda la competición |
+| `GET /api/fouls?competition=&season=&group=&limit=&offset=` | `{ meta, foulOutThreshold, players[], playersTotal, teams[] }` — disciplina de faltas por jugador y por equipo |
 
 **Una respuesta habla siempre de una sola competición.** Sumar la Tercera FEB
 masculina y la LF Endesa en un mismo ranking no significa nada, así que cuando
@@ -498,6 +601,35 @@ cruzar para la fecha de cada partido.
 Los valores viajan siempre como parámetros de ClickHouse (`{nombre:Tipo}`),
 nunca interpolados en el SQL.
 
+### Clutch, asistencias y faltas (`/api/clutch`, `/api/assist-network`, `/api/fouls`)
+
+Los tres leen `feb.playbyplay` (ver más arriba), no `feb.jugadores`, así que
+cuentan jugadas, no líneas de box score.
+
+**Clutch**: últimos `CLUTCH_SECONDS` (300 s = 5') del último cuarto o
+cualquier prórroga, con el marcador a `CLUTCH_MARGIN` (5) puntos o menos **en
+ese instante**, no en el resultado final. El marcador de cada jugada se
+reconstruye con `max(scoreA)`/`max(scoreB)` en una ventana ordenada por el
+tiempo real de partido (cuarto y segundos restantes): `scoreA`/`scoreB` solo
+vienen rellenos en las jugadas que anotan, y como el marcador nunca baja, el
+máximo acumulado hasta cada jugada es el marcador vigente en ese momento sin
+tener que rellenar nada a mano. `MIN_CLUTCH_GAMES` (2) filtra a quien apenas
+ha estado en esa situación.
+
+**Red de asistencias**: pares `(pasador, anotador)` sacados de los tiros de
+campo anotados con `assisted_by_name` resuelto; sin `team`, el filtro son los
+`LIMIT 300` pares con más asistencias de toda la competición. El frontend
+recorta aún más al dibujar (`MAX_EDGES_TEAM`/`MAX_EDGES_LEAGUE` en
+`AssistNetwork.jsx`), porque un diagrama con cientos de nodos deja de leerse.
+
+**Disciplina de faltas**: cuenta por tipo (`foul_type`: personal / técnica /
+descalificante) y por partido, para poder marcar cuándo un jugador llegó a
+`FOUL_OUT_THRESHOLD` (5) personales en un mismo partido — «eliminado», no solo
+«con muchas faltas en la temporada». Los partidos jugados salen de
+`feb.jugadores` (el acta de caja), no de `playbyplay`: éste solo sabe de
+partidos en los que hubo alguna falta, y hace falta el total para calcular
+faltas por partido.
+
 ### Rendimiento
 
 Dos detalles que valen más que cualquier optimización de las consultas:
@@ -513,15 +645,26 @@ temporada devolvía 243 jugadores y 82 KB en cada carga.
 
 ### Sistema visual
 
-Tokens en `src/styles.css`, heredados del `index.html` original: `#0d1117`
-fondo, `#161b22` tarjeta, `#30363d` borde, `#e6e04c` acento, Inter, radios
-8/4 px, contenedor 1200 px. Se añade `--ink: #e6edf3` porque el CSS anterior
-usaba `var(--white)` sin definirla y los títulos quedaban en gris apagado.
+Tokens en `frontend/src/styles.css`: `#222831` fondo, `#262c36`/`#31363f`
+tarjetas, `#3d4450` borde, `#76abae` acento (teal), `#eeeeee` texto principal,
+Inter, radios 8/4 px, contenedor 1200 px. Todo el color pasa por estas
+variables CSS — ningún componente lleva un hex suelto — así que repintar el
+tema es cambiar `:root` una vez, no perseguir literales por todos los ficheros.
+
+`components/Primitives.jsx` reúne lo reutilizable entre pantallas: `Panel`,
+`StatTile`, `Meter`, `Select`, `ContextPicker` (selector de
+competición/temporada/grupo), `Pager` (paginación offset/limit) y `Tabs`
+(pestañas en píldora, con fondo sólido en la activa — la usan tanto
+`Jugadores.jsx` como `Team.jsx` para cambiar de vista sin cambiar de pantalla).
 
 La geometría del mapa de tiro vive en `src/lib/court.js` y usa las mismas
 constantes que `jobs/spark_gold.py`; si se cambian allí, hay que cambiarlas aquí.
 
-Los diseños de origen están en `design/` (`*.dc.html` + `canvas.json`).
+Los diseños de origen del Dashboard/ficha de jugador originales están en
+`design/` (`*.dc.html` + `canvas.json`). La reorganización a Ligas/Jugadores/
+Equipos y la paleta actual (charcoal/teal) se diseñaron después, en un canvas
+de Claude Design que no llegó a guardarse en el repo — solo queda el enlace
+privado del artifact.
 
 ## Tests
 
@@ -533,9 +676,11 @@ cd frontend && npm run check              # interfaz, incluidas todas las pantal
 | Fichero | Qué cubre |
 |---|---|
 | `tests/test_scraper_parsing.py` | el recorrido de jornadas del WebForm, sin red |
+| `tests/test_update_flow.py` | un partido sin jugar no se guarda en raw (si se guardara, la idempotencia lo daría por hecho y no volvería a bajarse nunca al disputarse) |
 | `tests/test_pipeline_local.py` | ejecuta bronze → silver → gold **de verdad** sobre dos partidos reales en disco local, y comprueba que el marcador reconstruido coincide con el acta |
 | `tests/test_api_contract.py` | que la API devuelve las claves que consume el frontend (incluida la clasificación y la ficha de equipo), con un ClickHouse simulado |
-| `tests/test_api_integracion.py` | ejecuta la API contra ClickHouse si está levantado: valida el SQL de verdad, que no se mezclen competiciones, que la paginación no solape y que la clasificación/plantilla/tiro de cada equipo cuadren entre sí |
+| `tests/test_api_playbyplay.py` | mismo mecanismo, para `/api/clutch`, `/api/assist-network` y `/api/fouls` — en fichero propio porque sus consultas no tienen nada que ver con las de jugadores/equipos |
+| `tests/test_api_integracion.py` | ejecuta la API contra ClickHouse si está levantado: valida el SQL de verdad, que no se mezclen competiciones, que la paginación no solape, que la clasificación/plantilla/tiro de cada equipo cuadren entre sí, y lo mismo para clutch/asistencias/faltas |
 | `frontend/npm run check` | renderiza fuera del navegador las piezas de todas las pantallas con los datos de ejemplo, comprueba que `teamSlug` (cliente) coincide con `team_slug` (servidor), y que los datos de ejemplo mantienen la forma de la API |
 
 Los datos de ejemplo del frontend **se generan desde la API**, no a mano:

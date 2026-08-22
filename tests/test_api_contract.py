@@ -187,6 +187,13 @@ class ApiContractTest(unittest.TestCase):
         ficha = self.run_async(api.player(slug=leader["slug"], season="2025"))
         self.assertEqual(ficha["slug"], leader["slug"])
 
+    def test_games_devuelve_todos_los_partidos_del_filtro(self):
+        result = self.run_async(api.games(season="2025", group=None))
+        self.assertIn("meta", result)
+        game = result["games"][0]
+        self.assertLessEqual({"gameId", "date", "home", "away", "homeScore", "awayScore"}, set(game))
+        self.assertIsInstance(game["homeScore"], int)
+
     def test_recent_games_usan_los_nombres_de_equipo(self):
         game = self.run_async(api.dashboard(season="2025", group=None))["recentGames"][0]
         self.assertLessEqual(set(FIXTURES["recentGames"][0]), set(game))

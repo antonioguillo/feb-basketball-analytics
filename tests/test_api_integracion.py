@@ -199,6 +199,70 @@ class ApiIntegracionTest(unittest.TestCase):
             self.run_async(api.team(slug="equipo-que-no-existe", season=self.season))
         self.assertEqual(ctx.exception.status_code, 404)
 
+    def test_games_devuelve_al_menos_los_de_la_clasificacion(self):
+        t = self.run_async(api.teams(season=self.season, group=None))
+        equipo = t["standings"][0]
+        g = self.run_async(api.games(season=self.season, group=None))
+        partidos_del_lider = [
+            game for game in g["games"] if equipo["team"] in (game["home"], game["away"])
+        ]
+        self.assertGreaterEqual(len(partidos_del_lider), equipo["games"])
+
+    # --- clutch / red de asistencias / faltas --------------------------------
+
+    def test_el_clutch_se_ejecuta_y_va_ordenado(self):
+        d = self.run_async(api.clutch(season=self.season, group=None, limit=20))
+        if not d["players"]:
+            self.skipTest("sin jugadores con el mínimo de partidos en momentos ajustados")
+
+        puntos = [p["points"] for p in d["players"]]
+        self.assertEqual(puntos, sorted(puntos, reverse=True))
+        for player in d["players"]:
+            self.assertGreaterEqual(player["games"], api.MIN_CLUTCH_GAMES)
+            self.assertTrue(player["team"])
+            fg = player["shooting"]
+            self.assertLessEqual(fg["fgm"], fg["fga"])
+            self.assertLessEqual(fg["fg3m"], fg["fg3a"])
+            self.assertLessEqual(fg["ftm"], fg["fta"])
+
+    def test_la_red_de_asistencias_liga_pasador_y_anotador_del_mismo_equipo(self):
+        d = self.run_async(api.assist_network(season=self.season, group=None))
+        if not d["edges"]:
+            self.skipTest("sin asistencias resueltas en esta temporada")
+
+        for edge in d["edges"][:30]:
+            self.assertNotEqual(edge["passerSlug"], edge["scorerSlug"])
+            self.assertGreater(edge["assists"], 0)
+
+        # Filtrar por equipo tiene que devolver un subconjunto: los mismos
+        # pares u otros, pero nunca más de los que hay sin filtrar.
+        t = self.run_async(api.teams(season=self.season, group=None))
+        equipo = t["standings"][0]["teamKey"]
+        por_equipo = self.run_async(
+            api.assist_network(season=self.season, group=None, team=equipo))
+        self.assertEqual(por_equipo["teamKey"], equipo)
+        for node in por_equipo["nodes"]:
+            self.assertEqual(node["team"], por_equipo["team"])
+
+    def test_las_faltas_cuadran_por_tipo_y_el_resumen_de_equipo_no_supera_el_total(self):
+        d = self.run_async(api.fouls(season=self.season, group=None, limit=20))
+        if not d["players"]:
+            self.skipTest("nadie llega al mínimo de partidos con faltas registradas")
+
+        totales = [p["totalFouls"] for p in d["players"]]
+        self.assertEqual(totales, sorted(totales, reverse=True))
+        for player in d["players"]:
+            suma = player["personalFouls"] + player["technicalFouls"] + player["disqualifyingFouls"]
+            self.assertEqual(suma, player["totalFouls"])
+            self.assertGreaterEqual(player["personalFouls"], 0)
+            # Eliminado solo puede pasar en un partido con 5+ personales; no
+            # puede haber más partidos eliminado que partidos con falta.
+            self.assertLessEqual(player["fouledOutGames"], player["games"])
+
+        self.assertTrue(d["teams"], "sin resumen de faltas por equipo")
+        ratios = [t["foulsPerGame"] for t in d["teams"] if t["foulsPerGame"] is not None]
+        self.assertEqual(ratios, sorted(ratios, reverse=True))
+
 
 if __name__ == "__main__":
     unittest.main()

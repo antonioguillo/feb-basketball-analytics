@@ -59,6 +59,21 @@ async def construir(competition, season, group, cuantos_jugadores, cuantos_equip
         equipos[fila["teamKey"]] = await api.team(slug=fila["teamKey"], **contexto)
         print(f"  equipos: {indice}/{min(cuantos_equipos, len(clasificacion['standings']))}")
 
+    # Solo la primera página: es el modo de ejemplo, no hace falta el listado
+    # entero (el ranking de faltas/clutch puede tener cientos de elegibles).
+    clutch = await api.clutch(**contexto, limit=api.LEADERS_LIMIT)
+    print(f"Clutch: {clutch['playersTotal']} jugadores elegibles")
+
+    faltas = await api.fouls(**contexto, limit=api.LEADERS_LIMIT)
+    print(f"Faltas: {faltas['playersTotal']} jugadores · {len(faltas['teams'])} equipos")
+
+    red_liga = await api.assist_network(**contexto)
+    redes_equipo = {}
+    for fila in clasificacion["standings"][:cuantos_equipos]:
+        redes_equipo[fila["teamKey"]] = await api.assist_network(**contexto, team=fila["teamKey"])
+    print(f"Red de asistencias: {len(red_liga['edges'])} pares en la competición · "
+          f"{len(redes_equipo)} equipos")
+
     # Las claves de primer nivel replican la respuesta del dashboard para que la
     # capa de datos del frontend pueda usarla sin transformar nada.
     return {
@@ -71,6 +86,10 @@ async def construir(competition, season, group, cuantos_jugadores, cuantos_equip
         "players": fichas,
         "teamsStandings": clasificacion["standings"],
         "teams": equipos,
+        "clutch": clutch,
+        "fouls": faltas,
+        "assistNetwork": red_liga,
+        "assistNetworkByTeam": redes_equipo,
     }
 
 

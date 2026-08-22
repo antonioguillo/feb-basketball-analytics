@@ -3,11 +3,12 @@ import { useState, useEffect, useCallback } from 'react';
 /**
  * Enrutado por hash, sin dependencias.
  * Rutas de las pantallas diseñadas:
- *   #/                        -> dashboard
+ *   #/                        -> ligas (clasificación + resultados)
+ *   #/jugadores               -> ranking de jugadores (líderes / clutch / faltas)
  *   #/jugador/<slug>          -> ficha de jugador
  *   #/comparar?jugadores=a,b  -> comparador de jugadores
  *   #/equipos                 -> clasificación
- *   #/equipo/<slug>           -> ficha de equipo
+ *   #/equipo/<slug>           -> ficha de equipo (resumen / plantilla / ritmo / asistencias)
  * El hash evita tener que configurar rewrites en el servidor que sirva el build.
  */
 function currentRoute() {
@@ -18,6 +19,9 @@ function currentRoute() {
   const query = Object.fromEntries(new URLSearchParams(search));
   const parts = path.split('/').filter(Boolean);
 
+  if (parts[0] === 'jugadores') {
+    return { name: 'players', context: query };
+  }
   if (parts[0] === 'jugador' && parts[1]) {
     return { name: 'player', slug: decodeURIComponent(parts[1]), context: query };
   }
@@ -35,7 +39,7 @@ function currentRoute() {
     return { name: 'teams', context: query };
   }
   if (parts.length === 0) {
-    return { name: 'dashboard', context: query };
+    return { name: 'ligas', context: query };
   }
   return { name: 'notFound', path };
 }
@@ -69,7 +73,8 @@ function contextQuery({ competition, season, group } = {}) {
 }
 
 export const href = {
-  dashboard: (context) => `#/${contextQuery(context)}`,
+  ligas: (context) => `#/${contextQuery(context)}`,
+  players: (context) => `#/jugadores${contextQuery(context)}`,
   player: (slug, context) => `#/jugador/${encodeURIComponent(slug)}${contextQuery(context)}`,
   compare: (slugs = [], context) => {
     const query = new URLSearchParams(contextQuery(context).replace(/^\?/, ''));

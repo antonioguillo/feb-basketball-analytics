@@ -8,14 +8,16 @@
  * anuncia, de modo que los datos de ejemplo nunca se presentan como si fueran
  * vivos.
  *
- * Los fixtures se cargan con import dinámico: pesan ~670 KB y no deben entrar
- * en el bundle inicial de quien sí tiene API.
+ * Los fixtures se cargan con import dinámico: no deben entrar en el bundle
+ * inicial de quien sí tiene API (pesan más de 1 MB con el histórico actual).
  *
  * Endpoints del backend:
  *   GET /api/competitions
  *        -> { competitions[] } — qué hay cargado
  *   GET /api/dashboard?competition=&season=&group=&limit=&offset=
  *        -> { meta, summary, leaders[], leadersTotal, recentGames[] }
+ *   GET /api/games?competition=&season=&group=
+ *        -> { meta, games[] } — todos los partidos del filtro, sin paginar
  *   GET /api/players/<slug>?competition=&season=&group=
  *        -> perfil (meta, totals, perGame, shooting, per36, zones,
  *           bests, gameLog[], shots[])
@@ -23,6 +25,12 @@
  *        -> { meta, standings[] } — clasificación del grupo
  *   GET /api/teams/<slug>?competition=&season=&group=
  *        -> ficha (meta, standing, pace, gameLog[], roster[], shots[])
+ *   GET /api/clutch?competition=&season=&group=&limit=&offset=
+ *        -> { meta, definition, players[], playersTotal, playersOffset }
+ *   GET /api/assist-network?competition=&season=&group=&team=
+ *        -> { meta, team, teamKey, nodes[], edges[] } — sin `team`, top de la competición
+ *   GET /api/fouls?competition=&season=&group=&limit=&offset=
+ *        -> { meta, foulOutThreshold, players[], playersTotal, playersOffset, teams[] }
  *
  * Toda respuesta se refiere a una sola competición; `meta` dice cuál.
  *
@@ -94,6 +102,16 @@ export function getDashboard({ competition, season, group, limit, offset } = {})
   }));
 }
 
+/** Todos los partidos del filtro, más recientes primero — sin paginar, el
+    frontend los agrupa por fecha para navegar jornada a jornada. */
+export function getGames({ competition, season, group } = {}) {
+  const suffix = queryString({ competition, season, group });
+  return withFallback(`/games${suffix}`, (fixtures) => ({
+    meta: fixtures.meta,
+    games: fixtures.recentGames,
+  }));
+}
+
 export function getPlayer(slug, { competition, season, group } = {}) {
   // El contexto viaja en la URL para que la ficha sea la del mismo grupo y
   // temporada que el listado desde el que se llegó.
@@ -122,6 +140,34 @@ export function getTeam(slug, { competition, season, group } = {}) {
   const suffix = queryString({ competition, season, group });
   return withFallback(`/teams/${encodeURIComponent(slug)}${suffix}`,
                       (fixtures) => fixtures.teams[slug]);
+}
+
+/** Ranking en momentos ajustados del partido (últimos minutos, marcador cerca). */
+export function getClutch({ competition, season, group, limit, offset } = {}) {
+  const suffix = queryString({ competition, season, group, limit, offset });
+  return withFallback(`/clutch${suffix}`, (fixtures) => ({
+    ...fixtures.clutch,
+    players: fixtures.clutch.players.slice(offset ?? 0, (offset ?? 0) + (limit ?? fixtures.clutch.players.length)),
+    playersOffset: offset ?? 0,
+  }));
+}
+
+/** Red de asistencias: sin `team`, los pares con más asistencias de la competición. */
+export function getAssistNetwork({ competition, season, group, team } = {}) {
+  const suffix = queryString({ competition, season, group, team });
+  return withFallback(`/assist-network${suffix}`, (fixtures) => (
+    team ? fixtures.assistNetworkByTeam[team] : fixtures.assistNetwork
+  ));
+}
+
+/** Disciplina de faltas: ranking de jugadores y resumen por equipo. */
+export function getFouls({ competition, season, group, limit, offset } = {}) {
+  const suffix = queryString({ competition, season, group, limit, offset });
+  return withFallback(`/fouls${suffix}`, (fixtures) => ({
+    ...fixtures.fouls,
+    players: fixtures.fouls.players.slice(offset ?? 0, (offset ?? 0) + (limit ?? fixtures.fouls.players.length)),
+    playersOffset: offset ?? 0,
+  }));
 }
 
 /** Slugs disponibles en los datos de ejemplo (para navegación y pruebas). */

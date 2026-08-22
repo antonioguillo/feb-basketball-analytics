@@ -4,7 +4,13 @@ Sirve lo que consume el frontend leyendo de ClickHouse:
 
     GET /api/competitions                          qué hay cargado
     GET /api/dashboard?competition=&season=&group=&limit=&offset=
+    GET /api/games?competition=&season=&group=
     GET /api/players/{slug}?competition=&season=&group=
+    GET /api/teams?competition=&season=&group=
+    GET /api/teams/{slug}?competition=&season=&group=
+    GET /api/clutch?competition=&season=&group=&limit=&offset=
+    GET /api/assist-network?competition=&season=&group=&team=
+    GET /api/fouls?competition=&season=&group=&limit=&offset=
 
 Las tablas `feb.*` no tienen id de jugador (el acta solo publica el nombre), así
 que el identificador se deriva del nombre con `src.naming.player_slug` y se
@@ -321,6 +327,41 @@ async def player(
                 "zone": row["zone"],
             }
             for row in shot_rows
+        ],
+    }
+
+
+@app.get("/api/games", tags=["dashboard"])
+async def games(
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+):
+    """Todos los partidos del filtro, más recientes primero. Sin paginar: un
+    grupo entero son ~200 partidos, cabe de sobra en una respuesta — el
+    frontend los agrupa por fecha para navegar jornada a jornada."""
+    ctx = await _contexto(competition, season, group)
+    where, params = ctx["where"], ctx["params"]
+    filas = await clickhouse.ch_query(
+        f"""
+        SELECT game_id, date, home_team, away_team, home_score, away_score
+        FROM feb.partidos WHERE {where}
+        ORDER BY game_date DESC, game_id DESC
+        """,
+        params,
+    )
+    return {
+        "meta": ctx["meta"],
+        "games": [
+            {
+                "gameId": _num(f["game_id"], int),
+                "date": f["date"],
+                "home": f["home_team"],
+                "away": f["away_team"],
+                "homeScore": _num(f["home_score"], int),
+                "awayScore": _num(f["away_score"], int),
+            }
+            for f in filas
         ],
     }
 

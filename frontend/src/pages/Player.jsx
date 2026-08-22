@@ -197,8 +197,8 @@ export default function Player({ slug, context, onSource }) {
     <>
       <div className="row" style={{ justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <div className="row" style={{ gap: 8, fontSize: '0.8125rem' }}>
-          <a href={href.dashboard(context)} style={{ color: 'var(--muted)' }}>
-            Dashboard
+          <a href={href.ligas(context)} style={{ color: 'var(--muted)' }}>
+            Ligas
           </a>
           <span style={{ color: 'var(--faint)' }}>/</span>
           <span style={{ color: 'var(--ink)' }}>{player.name}</span>

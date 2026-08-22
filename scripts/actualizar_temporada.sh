@@ -34,7 +34,7 @@ done
 
 # La capa raw vive en MinIO: sin la infraestructura levantada no hay dónde
 # guardar, así que se aborta antes de gastar horas de scraping.
-if ! curl -sf -o /dev/null --max-time 3 "http://localhost:9000/minio/health/live"; then
+if ! curl -sf --max-time 10 "http://localhost:9000/minio/health/live" > /dev/null; then
     log "ERROR: MinIO no responde en localhost:9000."
     log "Levanta la infraestructura primero:  ./run_pipeline.sh up"
     exit 1

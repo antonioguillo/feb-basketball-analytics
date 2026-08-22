@@ -2,8 +2,7 @@ import { useEffect } from 'react';
 import { getTeams, getCompetitions } from '../api/client.js';
 import { useResource } from '../lib/useResource.js';
 import { href } from '../lib/router.js';
-import { Panel, Loading, ErrorState } from '../components/Primitives.jsx';
-import { ContextPicker } from './Dashboard.jsx';
+import { Panel, ContextPicker, Loading, ErrorState } from '../components/Primitives.jsx';
 import { integer, signed, teamName } from '../lib/format.js';
 
 export function StandingsRow({ team, onOpen, context }) {

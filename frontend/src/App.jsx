@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import Layout from './components/Layout.jsx';
-import Dashboard from './pages/Dashboard.jsx';
+import LigasPage from './pages/Ligas.jsx';
+import JugadoresPage from './pages/Jugadores.jsx';
 import PlayerPage from './pages/Player.jsx';
 import ComparePage from './pages/Compare.jsx';
 import TeamsPage from './pages/Teams.jsx';
@@ -19,8 +20,10 @@ export default function App() {
     (slug, context) => navigate(href.team(slug, context).slice(1)), [navigate]);
   // Cambiar competición, temporada o grupo se refleja en la ruta, así que el
   // estado se puede compartir por enlace y sobrevive a recargar la página.
-  const cambiarContexto = useCallback(
-    (context) => navigate(href.dashboard(context).slice(1)), [navigate]);
+  const cambiarContextoLigas = useCallback(
+    (context) => navigate(href.ligas(context).slice(1)), [navigate]);
+  const cambiarContextoJugadores = useCallback(
+    (context) => navigate(href.players(context).slice(1)), [navigate]);
   const cambiarContextoEquipos = useCallback(
     (context) => navigate(href.teams(context).slice(1)), [navigate]);
   const handleSource = useCallback((value) => setSource(value), []);
@@ -28,13 +31,23 @@ export default function App() {
   let page;
   let activeNav;
 
-  if (route.name === 'dashboard') {
-    activeNav = 'dashboard';
+  if (route.name === 'ligas') {
+    activeNav = 'ligas';
     page = (
-      <Dashboard
+      <LigasPage
+        context={route.context}
+        onNavigate={openTeam}
+        onContextChange={cambiarContextoLigas}
+        onSource={handleSource}
+      />
+    );
+  } else if (route.name === 'players') {
+    activeNav = 'players';
+    page = (
+      <JugadoresPage
         context={route.context}
         onNavigate={openPlayer}
-        onContextChange={cambiarContexto}
+        onContextChange={cambiarContextoJugadores}
         onSource={handleSource}
       />
     );
@@ -70,7 +83,7 @@ export default function App() {
         title="Página no encontrada"
         detail={`La ruta ${route.path} no existe.`}
         onRetry={() => {
-          window.location.hash = href.dashboard().slice(1);
+          window.location.hash = href.ligas().slice(1);
         }}
       />
     );
