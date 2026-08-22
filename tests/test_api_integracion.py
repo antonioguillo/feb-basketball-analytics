@@ -153,6 +153,52 @@ class ApiIntegracionTest(unittest.TestCase):
             self.run_async(api.player(slug="jugador-que-no-existe", season=self.season))
         self.assertEqual(ctx.exception.status_code, 404)
 
+    # --- clasificación / ficha de equipo -------------------------------------
+
+    def test_la_clasificacion_cuadra_con_el_dashboard(self):
+        d = self.run_async(api.dashboard(season=self.season, group=None))
+        t = self.run_async(api.teams(season=self.season, group=None))
+
+        self.assertEqual(len(t["standings"]), d["summary"]["teams"])
+        # Más victorias primero, y ninguna resta negativa de partidos.
+        victorias = [row["wins"] for row in t["standings"]]
+        self.assertEqual(victorias, sorted(victorias, reverse=True))
+        for row in t["standings"]:
+            self.assertGreaterEqual(row["losses"], 0)
+            self.assertEqual(row["games"], row["wins"] + row["losses"])
+
+    def test_la_ficha_del_primer_equipo_es_coherente(self):
+        t = self.run_async(api.teams(season=self.season, group=None))
+        primero = t["standings"][0]
+        ficha = self.run_async(api.team(slug=primero["teamKey"], season=self.season))
+
+        self.assertEqual(ficha["standing"]["games"], primero["games"])
+        self.assertTrue(ficha["roster"], "un equipo con partidos debería tener plantilla")
+        # Cada jugador de la plantilla juega en ese mismo equipo.
+        for jugador in ficha["roster"]:
+            self.assertEqual(jugador["team"], primero["team"])
+        # El ritmo no puede tener más partidos que los que dice la clasificación
+        # (el ritmo se pierde si un partido no cruza con su rival en equipos_partido).
+        self.assertLessEqual(len(ficha["gameLog"]), ficha["standing"]["games"])
+        for partido in ficha["gameLog"]:
+            if partido["possessions"] is not None:
+                self.assertGreater(partido["possessions"], 0)
+
+    def test_las_zonas_de_la_plantilla_cuadran_con_los_tiros_del_equipo(self):
+        t = self.run_async(api.teams(season=self.season, group=None))
+        ficha = self.run_async(api.team(slug=t["standings"][0]["teamKey"], season=self.season))
+
+        total_zonas = sum(
+            zona["att"] for jugador in ficha["roster"] for zona in jugador["zones"].values())
+        self.assertEqual(total_zonas, len(ficha["shots"]),
+                         "cada tiro del equipo tiene que caer en la zona de alguien de la plantilla")
+
+    def test_un_equipo_inexistente_da_404(self):
+        from fastapi import HTTPException
+        with self.assertRaises(HTTPException) as ctx:
+            self.run_async(api.team(slug="equipo-que-no-existe", season=self.season))
+        self.assertEqual(ctx.exception.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

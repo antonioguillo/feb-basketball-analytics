@@ -26,7 +26,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query
 
 from src.models import COMPETITIONS
-from src.naming import display_name, player_slug
+from src.naming import display_name, player_slug, team_slug
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -203,6 +203,85 @@ async def _indice_slugs(competition: Optional[str], season: Optional[str],
 def invalidar_indice_slugs():
     """Para los tests y para cuando se recarga el pipeline."""
     _slug_cache.clear()
+    _team_slug_cache.clear()
+
+
+# --- índice de equipos -------------------------------------------------------
+# Mismo mecanismo que el índice de jugadores: el acta no trae id de equipo, así
+# que el identificador se deriva del nombre y se cachea por competición/
+# temporada/grupo.
+_team_slug_cache: Dict[tuple, tuple] = {}
+_team_slug_lock = asyncio.Lock()
+
+
+async def _indice_equipos(competition: Optional[str], season: Optional[str],
+                          group: Optional[str]) -> Dict[str, str]:
+    clave = (competition, season, group)
+    guardado = _team_slug_cache.get(clave)
+    if guardado and (time.monotonic() - guardado[0]) < SLUG_CACHE_TTL:
+        return guardado[1]
+
+    async with _team_slug_lock:
+        guardado = _team_slug_cache.get(clave)
+        if guardado and (time.monotonic() - guardado[0]) < SLUG_CACHE_TTL:
+            return guardado[1]
+
+        where, params = _filtro(competition, season, group)
+        filas = await ch_query(
+            f"SELECT DISTINCT team FROM feb.jugadores WHERE {where}", params)
+        indice = {team_slug(f["team"]): f["team"] for f in filas}
+        _team_slug_cache[clave] = (time.monotonic(), indice)
+        return indice
+
+
+async def _resolve_team(slug: str, competition: Optional[str], season: Optional[str],
+                        group: Optional[str]) -> str:
+    indice = await _indice_equipos(competition, season, group)
+    name = indice.get(slug)
+    if name is None:
+        raise HTTPException(status_code=404, detail=f"Equipo '{slug}' no encontrado")
+    return name
+
+
+async def _standings(where: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Clasificación: un equipo puede ser local o visitante, así que se cuenta
+    desde ambos lados con una UNION y se suma por nombre de equipo."""
+    filas = await ch_query(
+        f"""
+        SELECT team, count() AS games, sum(win) AS wins,
+               sum(pf) AS points_for, sum(pa) AS points_against
+        FROM (
+            SELECT home_team AS team, home_score AS pf, away_score AS pa,
+                   if(home_score > away_score, 1, 0) AS win
+            FROM feb.partidos WHERE {where}
+            UNION ALL
+            SELECT away_team AS team, away_score AS pf, home_score AS pa,
+                   if(away_score > home_score, 1, 0) AS win
+            FROM feb.partidos WHERE {where}
+        )
+        GROUP BY team
+        ORDER BY wins DESC, (points_for - points_against) DESC
+        """,
+        params,
+    )
+    tabla = []
+    for index, row in enumerate(filas, 1):
+        games = _num(row["games"], int)
+        wins = _num(row["wins"], int)
+        pf = _num(row["points_for"], int)
+        pa = _num(row["points_against"], int)
+        tabla.append({
+            "rank": index,
+            "teamKey": team_slug(row["team"]),
+            "team": row["team"],
+            "games": games,
+            "wins": wins,
+            "losses": games - wins,
+            "pointsFor": pf,
+            "pointsAgainst": pa,
+            "diff": pf - pa,
+        })
+    return tabla
 
 
 # --- endpoints ---------------------------------------------------------------
@@ -595,6 +674,187 @@ async def player(
             }
             for row in shot_rows
         ],
+    }
+
+
+@app.get("/api/teams", tags=["equipos"])
+async def teams(
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+):
+    """Clasificación: equipos del grupo con récord y diferencial de puntos."""
+    ctx = await _contexto(competition, season, group)
+    tabla = await _standings(ctx["where"], ctx["params"])
+    return {"meta": ctx["meta"], "standings": tabla}
+
+
+def _possessions(fga, orb, tov, fta) -> Optional[float]:
+    fga, orb, tov, fta = _num(fga, float), _num(orb, float), _num(tov, float), _num(fta, float)
+    if fga is None:
+        return None
+    return fga - (orb or 0) + (tov or 0) + 0.44 * (fta or 0)
+
+
+@app.get("/api/teams/{slug}", tags=["equipos"])
+async def team(
+    slug: str,
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+):
+    """Ficha de equipo: clasificación, plantilla con tiro por zona, y ritmo/eficiencia por partido."""
+    ctx = await _contexto(competition, season, group)
+    competition, season, group = ctx["competition"], ctx["season"], ctx["group"]
+
+    name = await _resolve_team(slug, competition, season, group)
+    tabla = await _standings(ctx["where"], ctx["params"])
+    standing = next((row for row in tabla if row["team"] == name), None)
+    if standing is None:
+        raise HTTPException(status_code=404, detail=f"Equipo '{slug}' sin partidos en {season}")
+
+    where, params = _filtro(competition, season, group)
+    params_team = {**params, "team": name}
+    where_j, _ = _filtro(competition, season, group, alias="j")
+
+    # Plantilla: mismas columnas que el ranking de líderes (se reutiliza
+    # _leader para el reparto de tiro), pero sin el mínimo de partidos/minutos
+    # — una plantilla tiene que enseñar también a quien juega poco.
+    filas_roster = await ch_query(
+        f"""
+        SELECT
+            player_name,
+            argMax(jersey, game_date) AS jersey,
+            argMax(`group`, game_date) AS grupo,
+            count() AS games,
+            avg(minutes) AS avg_min, avg(points) AS avg_pts, avg(reb) AS avg_reb,
+            avg(ast) AS avg_ast, avg(stl) AS avg_stl, avg(blk) AS avg_blk,
+            avg(to) AS avg_to, avg(val) AS avg_val, avg(plus_minus) AS avg_plus_minus,
+            sum(t2m) AS sum_t2m, sum(t2a) AS sum_t2a,
+            sum(t3m) AS sum_t3m, sum(t3a) AS sum_t3a,
+            sum(ftm) AS sum_ftm, sum(fta) AS sum_fta,
+            sum(points) AS total_points
+        FROM feb.jugadores
+        WHERE {where} AND team = {{team:String}}
+        GROUP BY player_name
+        ORDER BY avg_val DESC
+        """,
+        params_team,
+    )
+
+    # Tiro por zona y por jugador: los tiros se enlazan por dorsal y lado,
+    # igual que en la ficha de jugador (la tabla de tiros no identifica al
+    # jugador por nombre).
+    filas_zonas = await ch_query(
+        f"""
+        SELECT j.player_name AS player_name, t.zone AS zone,
+               countIf(t.made = 1) AS made, count() AS att
+        FROM feb.tiros AS t
+        INNER JOIN feb.jugadores AS j
+            ON j.game_id = t.game_id AND j.jersey = t.player AND t.team = if(j.is_home, 0, 1)
+        WHERE {where_j} AND j.team = {{team:String}}
+        GROUP BY player_name, zone
+        """,
+        params_team,
+    )
+    zonas_por_jugador: Dict[str, Dict[str, Any]] = {}
+    for row in filas_zonas:
+        made, att = _num(row["made"], int), _num(row["att"], int)
+        zonas_por_jugador.setdefault(row["player_name"], {})[row["zone"]] = {
+            "made": made, "att": att, "pct": _ratio(made, att),
+        }
+
+    roster = []
+    for row in filas_roster:
+        row["team"] = name   # el filtro ya garantiza que todas las filas son del mismo equipo
+        entry = _leader(row)
+        entry["jersey"] = _num(row["jersey"], int)
+        entry["zones"] = zonas_por_jugador.get(row["player_name"], {})
+        roster.append(entry)
+
+    # Mapa de tiro agregado del equipo: mismos tiros que arriba, sin agrupar.
+    filas_shots = await ch_query(
+        f"""
+        SELECT t.x AS x, t.y AS y, t.made AS made,
+               t.shot_distance_m AS dist, t.zone AS zone
+        FROM feb.tiros AS t
+        INNER JOIN feb.jugadores AS j
+            ON j.game_id = t.game_id AND j.jersey = t.player AND t.team = if(j.is_home, 0, 1)
+        WHERE {where_j} AND j.team = {{team:String}}
+        """,
+        params_team,
+    )
+    shots = [
+        {"x": _num(row["x"], float, 2), "y": _num(row["y"], float, 2),
+         "made": _num(row["made"], int), "dist": _num(row["dist"], float, 2), "zone": row["zone"]}
+        for row in filas_shots
+    ]
+
+    # Ritmo y eficiencia: posesiones estimadas (FGA - RO + PER + 0.44·TL) de
+    # cada partido, comparando el box score propio con el del rival en el
+    # mismo game_id — así el rating defensivo se mide contra las posesiones
+    # reales del rival, no una aproximación con las propias.
+    # `equipos_partido` no lleva columna de grupo (solo competition/year), así
+    # que competición/temporada/grupo se filtran por `partidos`, con quien de
+    # todos modos hay que cruzar para la fecha.
+    where_p, params_p = _filtro(competition, season, group, alias="p")
+    filas_pace = await ch_query(
+        f"""
+        SELECT e.game_id AS game_id, p.date AS date, opp.team_name AS opponent,
+               e.points AS pf, opp.points AS pa,
+               e.t2a AS t2a_for, e.t3a AS t3a_for, e.off_reb AS orb_for,
+               e.to AS tov_for, e.fta AS fta_for,
+               opp.t2a AS t2a_opp, opp.t3a AS t3a_opp, opp.off_reb AS orb_opp,
+               opp.to AS tov_opp, opp.fta AS fta_opp
+        FROM feb.equipos_partido AS e
+        INNER JOIN feb.equipos_partido AS opp ON opp.game_id = e.game_id
+        INNER JOIN feb.partidos AS p ON p.game_id = e.game_id
+        WHERE {where_p} AND e.team_name = {{team:String}} AND opp.team_name != e.team_name
+        ORDER BY p.game_date
+        """,
+        {**params_p, "team": name},
+    )
+    pace_log = []
+    for row in filas_pace:
+        fga_for = (_num(row["t2a_for"], float) or 0) + (_num(row["t3a_for"], float) or 0)
+        fga_opp = (_num(row["t2a_opp"], float) or 0) + (_num(row["t3a_opp"], float) or 0)
+        poss_for = _possessions(fga_for, row["orb_for"], row["tov_for"], row["fta_for"])
+        poss_opp = _possessions(fga_opp, row["orb_opp"], row["tov_opp"], row["fta_opp"])
+        pf, pa = _num(row["pf"], float), _num(row["pa"], float)
+        pace_log.append({
+            "gameId": _num(row["game_id"], int),
+            "date": row["date"],
+            "opponent": row["opponent"],
+            "pointsFor": _num(pf, int),
+            "pointsAgainst": _num(pa, int),
+            "won": pf > pa if pf is not None and pa is not None else None,
+            "possessions": round((poss_for + poss_opp) / 2, 1) if poss_for and poss_opp else None,
+            "ortg": round(pf / poss_for * 100, 1) if poss_for else None,
+            "drtg": round(pa / poss_opp * 100, 1) if poss_opp else None,
+        })
+
+    def _avg(key: str) -> Optional[float]:
+        values = [g[key] for g in pace_log if g[key] is not None]
+        return round(sum(values) / len(values), 1) if values else None
+
+    avg_ortg, avg_drtg = _avg("ortg"), _avg("drtg")
+    pace = {
+        "avgPossessions": _avg("possessions"),
+        "avgOrtg": avg_ortg,
+        "avgDrtg": avg_drtg,
+        "avgNetRtg": round(avg_ortg - avg_drtg, 1) if avg_ortg is not None and avg_drtg is not None else None,
+    }
+
+    return {
+        "slug": slug,
+        "team": name,
+        "group": roster[0]["group"] if roster else group,
+        "meta": ctx["meta"],
+        "standing": standing,
+        "pace": pace,
+        "gameLog": pace_log,
+        "roster": roster,
+        "shots": shots,
     }
 
 

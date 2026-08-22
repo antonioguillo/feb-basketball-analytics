@@ -257,6 +257,79 @@ button {
   border-color: var(--accent-hover);
 }
 
+/* Buscador con sugerencias del comparador de jugadores */
+.combo {
+  position: relative;
+}
+
+.combo__list {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-y: auto;
+  max-height: 280px;
+}
+
+.combo__option {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.combo__option:last-child {
+  border-bottom: none;
+}
+
+.combo__option:hover,
+.combo__option:focus-visible {
+  background: var(--surface-hover);
+}
+
+.combo__empty {
+  padding: 9px 12px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+/* Tabla del comparador: una fila de sección por bloque de estadísticas */
+.table tr.is-section td {
+  padding-top: 22px;
+  padding-bottom: 8px;
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.table tr.is-section:first-child td {
+  padding-top: 2px;
+}
+
+.table--compare {
+  width: auto;
+  min-width: 100%;
+}
+
+/* A diferencia de .table--scroll-sm (que solo se activa en móvil), el
+   comparador puede desbordar en cualquier ancho según cuántos jugadores
+   se añadan, así que el scroll horizontal está siempre disponible. */
+.table--scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .grid {
   display: grid;
   gap: 16px;

@@ -5,9 +5,9 @@ import { href } from '../lib/router.js';
 import { Panel, StatTile, Meter, LabelledBar, Loading, ErrorState } from '../components/Primitives.jsx';
 import ShotChart, { ShotLegend } from '../components/ShotChart.jsx';
 import { ZONE_ORDER, ZONE_LABEL } from '../lib/court.js';
-import { decimal, percent, signed, madeOfAttempts, teamName } from '../lib/format.js';
+import { decimal, percent, signed, madeOfAttempts, teamName, teamSlug } from '../lib/format.js';
 
-export function Identity({ player, meta }) {
+export function Identity({ player, meta, context }) {
   return (
     <div className="panel" style={{ marginBottom: 24 }}>
       <div
@@ -38,7 +38,9 @@ export function Identity({ player, meta }) {
               className="row"
               style={{ gap: 10, fontSize: '0.875rem', color: 'var(--muted)', flexWrap: 'wrap' }}
             >
-              <span style={{ color: 'var(--ink)' }}>{teamName(player.team)}</span>
+              <a href={href.team(teamSlug(player.team), context)} style={{ color: 'var(--ink)' }}>
+                {teamName(player.team)}
+              </a>
               <span style={{ color: 'var(--faint)' }}>·</span>
               <span>
                 {meta.competition}
@@ -193,15 +195,20 @@ export default function Player({ slug, context, onSource }) {
 
   return (
     <>
-      <div className="row" style={{ gap: 8, fontSize: '0.8125rem', marginBottom: 20 }}>
-        <a href={href.dashboard(context)} style={{ color: 'var(--muted)' }}>
-          Dashboard
+      <div className="row" style={{ justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="row" style={{ gap: 8, fontSize: '0.8125rem' }}>
+          <a href={href.dashboard(context)} style={{ color: 'var(--muted)' }}>
+            Dashboard
+          </a>
+          <span style={{ color: 'var(--faint)' }}>/</span>
+          <span style={{ color: 'var(--ink)' }}>{player.name}</span>
+        </div>
+        <a href={href.compare([player.slug], context)} className="chip chip--button">
+          Comparar con otro jugador
         </a>
-        <span style={{ color: 'var(--faint)' }}>/</span>
-        <span style={{ color: 'var(--ink)' }}>{player.name}</span>
       </div>
 
-      <Identity player={player} meta={cabecera} />
+      <Identity player={player} meta={cabecera} context={context} />
 
       <div
         className="grid grid--kpi-6"

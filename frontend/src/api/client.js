@@ -19,6 +19,10 @@
  *   GET /api/players/<slug>?competition=&season=&group=
  *        -> perfil (meta, totals, perGame, shooting, per36, zones,
  *           bests, gameLog[], shots[])
+ *   GET /api/teams?competition=&season=&group=
+ *        -> { meta, standings[] } — clasificación del grupo
+ *   GET /api/teams/<slug>?competition=&season=&group=
+ *        -> ficha (meta, standing, pace, gameLog[], roster[], shots[])
  *
  * Toda respuesta se refiere a una sola competición; `meta` dice cuál.
  *
@@ -103,6 +107,21 @@ export function getCompetitions() {
   return withFallback('/competitions', (fixtures) => ({
     competitions: fixtures.competitions,
   }));
+}
+
+/** Clasificación: equipos del grupo con récord y diferencial de puntos. */
+export function getTeams({ competition, season, group } = {}) {
+  const suffix = queryString({ competition, season, group });
+  return withFallback('/teams' + suffix, (fixtures) => ({
+    meta: fixtures.meta,
+    standings: fixtures.teamsStandings,
+  }));
+}
+
+export function getTeam(slug, { competition, season, group } = {}) {
+  const suffix = queryString({ competition, season, group });
+  return withFallback(`/teams/${encodeURIComponent(slug)}${suffix}`,
+                      (fixtures) => fixtures.teams[slug]);
 }
 
 /** Slugs disponibles en los datos de ejemplo (para navegación y pruebas). */

@@ -1,13 +1,14 @@
 import { BallIcon, InfoIcon } from './Icons.jsx';
 import { href } from '../lib/router.js';
 
-/* Las secciones de Equipos y Partidos aparecen en la navegación porque forman
-   parte del producto, pero todavía no tienen pantalla diseñada: se muestran
-   desactivadas en vez de enlazar a una página vacía. */
+/* La sección de Partidos aparece en la navegación porque forma parte del
+   producto, pero todavía no tiene pantalla diseñada: se muestra desactivada
+   en vez de enlazar a una página vacía. */
 const NAV = [
   { key: 'dashboard', label: 'Dashboard', to: href.dashboard() },
   { key: 'players', label: 'Jugadores', to: null },
-  { key: 'teams', label: 'Equipos', to: null },
+  { key: 'compare', label: 'Comparar', to: href.compare() },
+  { key: 'teams', label: 'Equipos', to: href.teams() },
   { key: 'games', label: 'Partidos', to: null },
 ];
 

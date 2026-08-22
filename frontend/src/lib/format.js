@@ -79,6 +79,26 @@ export function teamName(raw) {
     .join(' ');
 }
 
+/**
+ * 'THE FITZGERALD EL PILAR' -> 'the-fitzgerald-el-pilar'.
+ *
+ * Tiene que producir exactamente lo mismo que `src/naming.py:team_slug`: es
+ * el mismo nombre de equipo, solo que aquí hace falta el slug en el cliente
+ * para enlazar a la ficha desde sitios que no lo traen ya resuelto (la fila
+ * de un líder, la cabecera de un jugador).
+ */
+export function teamSlug(raw) {
+  if (!raw) return '';
+  return raw
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')     // marcas de acento sueltas tras descomponer (á -> a)
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x00-\x7f]/g, '')        // símbolos sin equivalente ascii (') se eliminan, no se sustituyen
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 /** "04/10/2025" -> "4 oct" */
 const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 

@@ -21,6 +21,16 @@ def player_slug(raw_name: str) -> str:
     return slug
 
 
+def team_slug(raw_name: str) -> str:
+    """'THE FITZGERALD EL PILAR' -> 'the-fitzgerald-el-pilar'.
+
+    A diferencia de player_slug, el nombre de equipo no viene invertido
+    ('APELLIDOS, NOMBRE'), así que no hace falta display_name aparte: el
+    propio nombre del acta ya se lee bien pasado por teamName() en el frontend.
+    """
+    return re.sub(r'[^a-z0-9]+', '-', _ascii(raw_name or '').lower()).strip('-')
+
+
 def display_name(raw_name: str) -> str:
     """'ORTEGA IBAÑEZ, ALEJANDRO' -> 'Alejandro Ortega Ibañez'.
 

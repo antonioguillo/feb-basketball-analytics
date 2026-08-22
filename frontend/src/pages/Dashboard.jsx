@@ -3,7 +3,7 @@ import { getDashboard, getCompetitions } from '../api/client.js';
 import { useResource } from '../lib/useResource.js';
 import { href } from '../lib/router.js';
 import { Panel, StatTile, Meter, Select, Loading, ErrorState } from '../components/Primitives.jsx';
-import { decimal, integer, teamName } from '../lib/format.js';
+import { decimal, integer, teamName, teamSlug } from '../lib/format.js';
 
 const PAGE_SIZE = 10;
 const TODOS = '';
@@ -99,7 +99,13 @@ export function LeaderRow({ player, max, rank, onOpen, context }) {
           {player.name}
         </a>
         <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: 2 }}>
-          {teamName(player.team)}
+          <a
+            href={href.team(teamSlug(player.team), context)}
+            style={{ color: 'var(--muted)' }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            {teamName(player.team)}
+          </a>
           {player.group ? ` · ${player.group}` : ''}
         </div>
       </td>

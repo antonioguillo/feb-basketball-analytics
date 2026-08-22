@@ -17,6 +17,7 @@ Uso:
     python scripts/generar_fixtures.py
     python scripts/generar_fixtures.py --competition lfendesa --season 2024
     python scripts/generar_fixtures.py --players 40
+    python scripts/generar_fixtures.py --teams 8
 """
 import argparse
 import asyncio
@@ -32,7 +33,7 @@ import api
 DESTINO = ROOT / "frontend" / "src" / "api" / "fixtures.json"
 
 
-async def construir(competition, season, group, cuantos_jugadores):
+async def construir(competition, season, group, cuantos_jugadores, cuantos_equipos):
     catalogo = await api.competitions()
 
     tablero = await api.dashboard(competition=competition, season=season, group=group,
@@ -50,6 +51,14 @@ async def construir(competition, season, group, cuantos_jugadores):
         if indice % 20 == 0:
             print(f"  fichas: {indice}/{min(cuantos_jugadores, len(tablero['leaders']))}")
 
+    clasificacion = await api.teams(**contexto)
+    print(f"Clasificación: {len(clasificacion['standings'])} equipos")
+
+    equipos = {}
+    for indice, fila in enumerate(clasificacion["standings"][:cuantos_equipos], 1):
+        equipos[fila["teamKey"]] = await api.team(slug=fila["teamKey"], **contexto)
+        print(f"  equipos: {indice}/{min(cuantos_equipos, len(clasificacion['standings']))}")
+
     # Las claves de primer nivel replican la respuesta del dashboard para que la
     # capa de datos del frontend pueda usarla sin transformar nada.
     return {
@@ -60,6 +69,8 @@ async def construir(competition, season, group, cuantos_jugadores):
         "recentGames": tablero["recentGames"],
         "competitions": catalogo["competitions"],
         "players": fichas,
+        "teamsStandings": clasificacion["standings"],
+        "teams": equipos,
     }
 
 
@@ -71,10 +82,13 @@ def main():
     parser.add_argument("--group", default=None)
     parser.add_argument("--players", type=int, default=60,
                         help="cuántas fichas completas se guardan (con sus tiros)")
+    parser.add_argument("--teams", type=int, default=6,
+                        help="cuántas fichas de equipo completas se guardan (con su plantilla y tiros)")
     parser.add_argument("--out", default=str(DESTINO))
     args = parser.parse_args()
 
-    datos = asyncio.run(construir(args.competition, args.season, args.group, args.players))
+    datos = asyncio.run(
+        construir(args.competition, args.season, args.group, args.players, args.teams))
 
     destino = Path(args.out)
     destino.parent.mkdir(parents=True, exist_ok=True)
@@ -84,7 +98,8 @@ def main():
     tamano = destino.stat().st_size / 1024
     tiros = sum(len(f["shots"]) for f in datos["players"].values())
     print(f"\n{destino.relative_to(ROOT)}: {tamano:.0f} KB · "
-          f"{len(datos['players'])} fichas · {tiros} tiros · "
+          f"{len(datos['players'])} fichas de jugador · {tiros} tiros · "
+          f"{len(datos['teams'])} fichas de equipo · "
           f"{len(datos['competitions'])} entradas de catálogo")
 
 

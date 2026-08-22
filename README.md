@@ -359,12 +359,15 @@ Se regeneran con la aplicación levantada:
 
 ```bash
 ./run_pipeline.sh api & ./run_pipeline.sh front &
-chrome --headless=new --window-size=1440,1250        --virtual-time-budget=15000        --screenshot=docs/capturas/01-dashboard.png http://localhost:3000/
+chrome --headless=new --window-size=1440,1250 --virtual-time-budget=15000 \
+       --screenshot=docs/capturas/01-dashboard.png http://localhost:3000/
 ```
 
-
-Aplicación de scouting con dos pantallas: **Dashboard** del grupo y **ficha de
-jugador** con mapa de tiro.
+Aplicación de scouting con seis pantallas: **Dashboard** del grupo, **ficha de
+jugador** con mapa de tiro, **comparador** de hasta 4 jugadores (tabla y radar
+de percentiles), **clasificación** de equipos, **ficha de equipo** (plantilla
+con tiro por zona y jugador, mapa de tiro agregado, ritmo y eficiencia por
+partido).
 
 ```bash
 cd frontend
@@ -374,16 +377,11 @@ npm run build    # dist/
 npm run check    # render de los componentes con datos reales, sin navegador
 ```
 
-La interfaz permite elegir **competición, temporada y grupo**; las opciones
-salen de `/api/competitions`, así que solo se ofrece lo que hay cargado. La
-selección viaja en la ruta (`#/?competition=tercerafeb&season=2025`), de modo
-que se puede compartir por enlace y sobrevive a recargar. Los líderes se
-paginan de diez en diez.
-
 `npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
 `VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
-ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
-2025/2026 — y lo anuncia con un aviso permanente, de modo que nunca se
+ejemplo** de `src/api/fixtures.json` — Tercera FEB 2025/2026 completa (367
+partidos, 3 grupos), con 60 fichas de jugador y 6 de equipo, generadas desde la
+API real — y lo anuncia con un aviso permanente, de modo que nunca se
 presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
 import dinámico: no entran en el bundle inicial.
 
@@ -457,6 +455,8 @@ Documentación interactiva en http://localhost:8000/docs.
 | `GET /api/competitions` | qué hay cargado: competiciones, temporadas y grupos |
 | `GET /api/dashboard?competition=&season=&group=&limit=&offset=` | `{ meta, summary, leaders[], leadersTotal, recentGames[] }` |
 | `GET /api/players/<slug>?competition=&season=&group=` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
+| `GET /api/teams?competition=&season=&group=` | `{ meta, standings[] }` — clasificación del grupo (récord y diferencial de puntos) |
+| `GET /api/teams/<slug>?competition=&season=&group=` | ficha: `standing`, `pace` (posesiones/ORTG/DRTG estimados), `gameLog[]`, `roster[]` (tiro por zona por jugador), `shots[]` |
 
 **Una respuesta habla siempre de una sola competición.** Sumar la Tercera FEB
 masculina y la LF Endesa en un mismo ranking no significa nada, así que cuando
@@ -467,10 +467,25 @@ cuántos grupos entran en la respuesta.
 Configuración por entorno: `CH_URL` (por defecto `http://localhost:8123`),
 `CH_USER`, `CH_PASSWORD`, `SLUG_CACHE_TTL`.
 
-**Identificador de jugador**: las tablas `feb.*` no tienen id — el acta de la
-FEB solo publica el nombre. El slug se deriva con `src/naming.py:player_slug`,
-que es la definición canónica, y se resuelve contra un índice en memoria por
-competición y temporada.
+**Identificador de jugador**: las tablas `feb.*` no tienen id de jugador — el
+acta de la FEB solo publica el nombre. El slug se deriva del nombre con
+`src/naming.py:player_slug`, que es la definición canónica: cualquier cosa que
+genere o resuelva URLs de jugador tiene que usar esa misma función, y se
+resuelve contra un índice en memoria por competición y temporada.
+**Identificador de equipo**: mismo mecanismo con `src/naming.py:team_slug` —
+el nombre de equipo no viene invertido, así que no hace falta un
+`display_name` aparte. El frontend recalcula el mismo slug en el cliente
+(`src/lib/format.js:teamSlug`) para enlazar a una ficha de equipo desde sitios
+que no lo traen ya resuelto (la fila de un líder, la cabecera de un jugador);
+tiene que producir exactamente lo mismo que la función de Python.
+
+**Ritmo y eficiencia de equipo**: las posesiones se estiman con
+`FGA - RO + PER + 0,44·TL`, calculadas por separado para el equipo y su rival
+en el mismo partido — el rating defensivo sale de los puntos del rival por
+100 posesiones *del rival*, no una aproximación con las posesiones propias
+para ambos lados. `feb.equipos_partido` no tiene columna de grupo, así que ese
+filtro se aplica sobre `feb.partidos`, con quien de todos modos hay que
+cruzar para la fecha de cada partido.
 
 Los valores viajan siempre como parámetros de ClickHouse (`{nombre:Tipo}`),
 nunca interpolados en el SQL.
@@ -488,107 +503,6 @@ Dos detalles que valen más que cualquier optimización de las consultas:
 Los líderes se paginan (`limit`, `offset`; 50 por defecto). Sin paginar, una
 temporada devolvía 243 jugadores y 82 KB en cada carga.
 
-## Frontend (React + Vite)
-
-Aplicación de scouting con dos pantallas: **Dashboard** del grupo y **ficha de
-jugador** con mapa de tiro.
-
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:3000
-npm run build    # dist/
-npm run check    # render de los componentes con datos reales, sin navegador
-```
-
-`npm run dev` proxya `/api` a `http://localhost:8000` (configurable con
-`VITE_API_TARGET`). **Si la API no responde, la interfaz cae a los datos de
-ejemplo** de `src/api/fixtures.json` — 63 partidos reales del Grupo E-A
-2025/2026 — y lo anuncia con un aviso permanente, de modo que nunca se
-presentan datos de ejemplo como si fueran vivos. Los fixtures se cargan con
-import dinámico: no entran en el bundle inicial.
-
-## Procesado incremental
-
-Las capas están particionadas por **competición y temporada**:
-
-```
-bronze/players/competition=tercerafeb/year=2025/...
-gold/fact_tiros/competition=lfendesa/year=2024/...
-```
-
-Acotando la ejecución solo se reprocesan esas particiones, en vez del histórico
-entero. Con `partitionOverwriteMode=dynamic`, la escritura toca únicamente las
-particiones presentes en los datos escritos:
-
-```bash
-# Solo la temporada en curso de una liga
-FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh bronze
-FEB_COMPETITIONS=tercerafeb FEB_SEASONS=2025 ./run_pipeline.sh silver
-
-# Reconstrucción completa (obligatoria si cambia el particionado o los tipos)
-FEB_REBUILD=1 ./run_pipeline.sh bronze
-```
-
-> `year` es la **temporada**, no el año natural. La 2025/2026 se juega entre
-> octubre de 2025 y mayo de 2026; derivar el año de la fecha del partido partía
-> cada temporada en dos particiones. El año natural se conserva aparte en
-> `bronze_games.calendar_year`.
-
-### Mantenimiento del lago
-
-```bash
-./run_pipeline.sh vacuum                              # retira versiones antiguas de Delta
-python scripts/migrar_raw.py                          # plan de limpieza de raw
-python scripts/migrar_raw.py --apply
-python scripts/migrar_raw.py --limpiar-marcadores --apply
-```
-
-`scripts/migrar_raw.py` retira de raw lo que no encaja en el particionado
-—ficheros que no son partidos, fichas de encuentros sin jugar y claves ad-hoc
-como `partido_suelto` o `group=ungrouped`— y unifica taxonomías antiguas. Por
-defecto solo enseña el plan; lo que borra teniendo datos lo guarda antes en
-`data/backup_raw/`.
-
-`--limpiar-marcadores` retira los objetos de cero bytes que MinIO deja como
-carpetas: tras un VACUUM hacen creer que sigue habiendo datos de una
-competición ya retirada.
-
-### Credenciales de ClickHouse
-
-Sin contraseña, la imagen oficial solo admite al usuario `default` desde dentro
-del contenedor y responde a cualquier petición del host con un
-«Authentication failed» que despista. El compose fija una:
-
-```bash
-CH_USER=default CH_PASSWORD=feb        # valores por defecto, cambiables por entorno
-```
-
-## API REST (`api.py`)
-
-```bash
-./run_pipeline.sh api          # o: uvicorn api:app --reload --port 8000
-```
-
-Documentación interactiva en http://localhost:8000/docs.
-
-| Endpoint | Devuelve |
-|---|---|
-| `GET /api/health` | estado de la conexión con ClickHouse |
-| `GET /api/dashboard?season=&group=` | `{ meta, summary, leaders[], recentGames[] }` |
-| `GET /api/players/<slug>` | perfil: `totals`, `perGame`, `shooting`, `per36`, `zones`, `bests`, `gameLog[]`, `shots[]` |
-
-Configuración por entorno: `CH_URL` (por defecto `http://localhost:8123`),
-`CH_USER`, `CH_PASSWORD`.
-
-**Identificador de jugador**: las tablas `feb.*` no tienen id de jugador — el
-acta de la FEB solo publica el nombre. El slug se deriva del nombre con
-`src/naming.py:player_slug`, que es la definición canónica: cualquier cosa que
-genere o resuelva URLs de jugador tiene que usar esa misma función.
-
-Los valores viajan siempre como parámetros de ClickHouse (`{nombre:Tipo}`),
-nunca interpolados en el SQL.
-
 ### Sistema visual
 
 Tokens en `src/styles.css`, heredados del `index.html` original: `#0d1117`
@@ -605,22 +519,23 @@ Los diseños de origen están en `design/` (`*.dc.html` + `canvas.json`).
 
 ```bash
 python -m unittest discover -s tests -v   # scraper, pipeline, contrato e integración
-cd frontend && npm run check              # interfaz, incluidas las dos pantallas
+cd frontend && npm run check              # interfaz, incluidas todas las pantallas
 ```
 
 | Fichero | Qué cubre |
 |---|---|
 | `tests/test_scraper_parsing.py` | el recorrido de jornadas del WebForm, sin red |
 | `tests/test_pipeline_local.py` | ejecuta bronze → silver → gold **de verdad** sobre dos partidos reales en disco local, y comprueba que el marcador reconstruido coincide con el acta |
-| `tests/test_api_contract.py` | que la API devuelve las claves que consume el frontend, con un ClickHouse simulado |
-| `tests/test_api_integracion.py` | ejecuta la API contra ClickHouse si está levantado: valida el SQL de verdad, que no se mezclen competiciones y que la paginación no solape |
-| `frontend/npm run check` | renderiza fuera del navegador las piezas de ambas pantallas con los datos de ejemplo, y comprueba que estos mantienen la forma de la API |
+| `tests/test_api_contract.py` | que la API devuelve las claves que consume el frontend (incluida la clasificación y la ficha de equipo), con un ClickHouse simulado |
+| `tests/test_api_integracion.py` | ejecuta la API contra ClickHouse si está levantado: valida el SQL de verdad, que no se mezclen competiciones, que la paginación no solape y que la clasificación/plantilla/tiro de cada equipo cuadren entre sí |
+| `frontend/npm run check` | renderiza fuera del navegador las piezas de todas las pantallas con los datos de ejemplo, comprueba que `teamSlug` (cliente) coincide con `team_slug` (servidor), y que los datos de ejemplo mantienen la forma de la API |
 
 Los datos de ejemplo del frontend **se generan desde la API**, no a mano:
 
 ```bash
 python scripts/generar_fixtures.py          # requiere ClickHouse con datos
 python scripts/generar_fixtures.py --competition lfendesa --season 2024
+python scripts/generar_fixtures.py --players 40 --teams 8
 ```
 
 Escribirlos a mano los condena a desfasarse, y entonces el modo sin conexión

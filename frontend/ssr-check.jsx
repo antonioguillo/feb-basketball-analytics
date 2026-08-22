@@ -10,8 +10,12 @@ import {
 } from './src/components/Primitives.jsx';
 import { ContextPicker, PageHead, LeaderRow, Pager, ResultRow, EmptyLeaders } from './src/pages/Dashboard.jsx';
 import { Identity, ShootingPanel, GameLog } from './src/pages/Player.jsx';
+import { CompareTable, SearchBox, filterCandidates, MAX_COMPARE } from './src/pages/Compare.jsx';
+import RadarChart, { RadarLegend, RADAR_AXES, percentileRank } from './src/components/RadarChart.jsx';
+import { StandingsRow } from './src/pages/Teams.jsx';
+import { Identity as TeamIdentity, Roster, PaceLog } from './src/pages/Team.jsx';
 import { ZONE_ORDER, ZONE_LABEL, projectShot, VIEW_W, VIEW_H } from './src/lib/court.js';
-import { decimal, percent, signed, teamName, integer, barWidth } from './src/lib/format.js';
+import { decimal, percent, signed, teamName, teamSlug, integer, barWidth } from './src/lib/format.js';
 
 /** React separa nodos de texto contiguos con comentarios al renderizar en
     servidor; para comprobar lo que LEE el usuario hay que quitarlos. */
@@ -140,6 +144,166 @@ for (const shot of player.shots) {
     problems.push(`proyección fuera de lienzo: ${JSON.stringify(shot)} -> ${cx},${cy}`);
     break;
   }
+}
+
+// --- comparador de jugadores -------------------------------------------------
+
+const compareSlugs = fixtures.leaders.slice(0, 2).map((l) => l.slug);
+const comparePlayers = compareSlugs.map((slug) => fixtures.players[slug]);
+if (comparePlayers.some((p) => !p)) problems.push('comparador: algún líder de prueba no tiene ficha');
+
+const compareHtml = check('CompareTable', () => renderToString(
+  <CompareTable players={comparePlayers} context={contexto} onRemove={() => {}} />));
+for (const p of comparePlayers) {
+  if (!texto(compareHtml).includes(p.name)) problems.push(`CompareTable: falta ${p.name}`);
+}
+const quitarBotones = (compareHtml.match(/Quitar ✕/g) || []).length;
+if (quitarBotones !== comparePlayers.length) {
+  problems.push(`CompareTable: ${quitarBotones} botones "Quitar", esperados ${comparePlayers.length}`);
+}
+for (const seccion of ['Medias por partido', 'Tiro', 'Por 36 minutos']) {
+  if (!texto(compareHtml).includes(seccion)) problems.push(`CompareTable: falta la sección "${seccion}"`);
+}
+
+// Con un único jugador no debe fallar, aunque no tenga sentido resaltar nada.
+check('CompareTable (1 jugador)', () => renderToString(
+  <CompareTable players={[comparePlayers[0]]} context={contexto} onRemove={() => {}} />));
+
+// El pozo de búsqueda es el mismo que "Líderes por valoración": una búsqueda
+// sin acento tiene que encontrar a un jugador con nombre acentuado.
+const acentuado = fixtures.leaders.find((l) => /[áéíóúñ]/i.test(l.name));
+if (acentuado) {
+  const sinAcento = acentuado.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const encontrado = filterCandidates(fixtures.leaders, sinAcento.slice(0, 6), [])
+    .some((c) => c.slug === acentuado.slug);
+  if (!encontrado) problems.push(`filterCandidates: "${sinAcento.slice(0, 6)}" no encuentra a ${acentuado.name}`);
+}
+if (filterCandidates(fixtures.leaders, 'a', []).length !== 0) {
+  problems.push('filterCandidates: una letra no debería devolver candidatos');
+}
+const excluido = fixtures.leaders[0];
+const conExclusion = filterCandidates(fixtures.leaders, excluido.name.slice(0, 4), [excluido.slug]);
+if (conExclusion.some((c) => c.slug === excluido.slug)) {
+  problems.push('filterCandidates: no respeta la exclusión de ya elegidos');
+}
+
+const searchHtml = check('SearchBox', () => renderToString(
+  <SearchBox query={fixtures.leaders[0].name.slice(0, 4)}
+             onQueryChange={() => {}}
+             candidates={filterCandidates(fixtures.leaders, fixtures.leaders[0].name.slice(0, 4), [])}
+             disabled={false}
+             onPick={() => {}} />));
+if (!texto(searchHtml).includes(fixtures.leaders[0].name)) {
+  problems.push('SearchBox: no lista al candidato esperado');
+}
+const searchVacioHtml = check('SearchBox (sin resultados)', () => renderToString(
+  <SearchBox query="zzzzzzzzzz" onQueryChange={() => {}} candidates={[]} disabled={false} onPick={() => {}} />));
+if (!texto(searchVacioHtml).includes('Sin resultados')) {
+  problems.push('SearchBox: no avisa cuando no hay resultados');
+}
+const searchLlenoHtml = check('SearchBox (cupo lleno)', () => renderToString(
+  <SearchBox query="" onQueryChange={() => {}} candidates={[]} disabled onPick={() => {}} />));
+if (!texto(searchLlenoHtml).includes(String(MAX_COMPARE))) {
+  problems.push('SearchBox: no avisa del máximo de jugadores al estar deshabilitado');
+}
+
+// --- radar de percentiles -----------------------------------------------------
+
+const puntosAxis = RADAR_AXES.find((a) => a.key === 'pts');
+const pctPool = [{ perGame: { pts: 10 } }, { perGame: { pts: 20 } }, { perGame: { pts: 30 } }];
+if (percentileRank(pctPool, puntosAxis, 20) !== 67) {
+  problems.push(`percentileRank: esperado 67, dio ${percentileRank(pctPool, puntosAxis, 20)}`);
+}
+if (percentileRank(pctPool, puntosAxis, 30) !== 100) problems.push('percentileRank: el máximo del pozo debe ser 100');
+if (percentileRank(pctPool, puntosAxis, null) !== null) problems.push('percentileRank: un valor nulo debe dar percentil nulo');
+if (percentileRank([], puntosAxis, 20) !== null) problems.push('percentileRank: un pozo vacío debe dar percentil nulo');
+
+const radarHtml = check('RadarChart', () => renderToString(
+  <RadarChart players={comparePlayers} pool={fixtures.leaders} />));
+for (const p of comparePlayers) {
+  if (!radarHtml.includes(p.name)) problems.push(`RadarChart: falta ${p.name} en el aria-label`);
+}
+for (const axis of RADAR_AXES) {
+  if (!texto(radarHtml).includes(axis.label)) problems.push(`RadarChart: falta el eje "${axis.label}"`);
+}
+// Un polígono de percentiles por jugador + los 4 anillos de la rejilla.
+const poligonos = (radarHtml.match(/<polygon/g) || []).length;
+if (poligonos !== comparePlayers.length + 4) {
+  problems.push(`RadarChart: ${poligonos} polígonos, esperados ${comparePlayers.length + 4}`);
+}
+
+// Con más jugadores de los que el radar admite (chequeo de daltonismo por
+// parejas, no solo adyacentes) se recorta a los tres primeros, no se rompe.
+const cuatroJugadores = fixtures.leaders.slice(0, 4).map((l) => fixtures.players[l.slug]);
+const radarLimitadoHtml = check('RadarChart (4 jugadores)', () => renderToString(
+  <RadarChart players={cuatroJugadores} pool={fixtures.leaders} />));
+if (cuatroJugadores[3] && radarLimitadoHtml.includes(cuatroJugadores[3].name)) {
+  problems.push('RadarChart: dibuja un cuarto jugador, debería recortar a 3');
+}
+
+const legendHtml = check('RadarLegend', () => renderToString(<RadarLegend players={comparePlayers} />));
+for (const p of comparePlayers) {
+  if (!texto(legendHtml).includes(p.name)) problems.push(`RadarLegend: falta ${p.name}`);
+}
+
+// --- clasificación / ficha de equipo ------------------------------------------
+
+// El slug se calcula en el cliente en varios sitios (fila de líder, cabecera
+// de jugador) para enlazar a la ficha sin que la API lo traiga ya resuelto;
+// tiene que coincidir con el que genera el backend (src/naming.py:team_slug),
+// o el enlace apuntaría a un equipo que el índice del servidor no reconoce.
+for (const fila of fixtures.teamsStandings) {
+  if (teamSlug(fila.team) !== fila.teamKey) {
+    problems.push(`teamSlug: "${fila.team}" -> "${teamSlug(fila.team)}", esperado "${fila.teamKey}"`);
+  }
+}
+
+const primerEquipoKey = Object.keys(fixtures.teams)[0];
+const equipo = fixtures.teams[primerEquipoKey];
+if (!equipo) problems.push('fixtures: no hay ninguna ficha de equipo');
+
+const standingsRowHtml = check('StandingsRow', () => renderToString(
+  <table><tbody>
+    <StandingsRow team={fixtures.teamsStandings[0]} onOpen={() => {}} context={contexto} />
+  </tbody></table>));
+if (!standingsRowHtml.includes(`#/equipo/${fixtures.teamsStandings[0].teamKey}`)) {
+  problems.push('StandingsRow: el enlace no apunta a la ficha de equipo');
+}
+
+const teamIdentityHtml = check('Team Identity', () => renderToString(
+  <TeamIdentity team={equipo} meta={equipo.meta} standing={equipo.standing} />));
+if (!texto(teamIdentityHtml).includes(`${equipo.standing.wins}-${equipo.standing.losses}`)) {
+  problems.push('Team Identity: falta el récord');
+}
+
+const rosterHtml = check('Roster', () => renderToString(
+  <Roster roster={equipo.roster} context={contexto} onOpen={() => {}} />));
+const filasRoster = (rosterHtml.match(/<tr/g) || []).length - 1;
+if (filasRoster !== equipo.roster.length) {
+  problems.push(`Roster: ${filasRoster} filas para ${equipo.roster.length} jugadores`);
+}
+for (const jugador of equipo.roster) {
+  if (!texto(rosterHtml).includes(jugador.name)) problems.push(`Roster: falta ${jugador.name}`);
+}
+
+const paceLogHtml = check('PaceLog', () => renderToString(<PaceLog gameLog={equipo.gameLog} />));
+const filasPace = (paceLogHtml.match(/<tr/g) || []).length - 1;
+if (filasPace !== equipo.gameLog.length) {
+  problems.push(`PaceLog: ${filasPace} filas para ${equipo.gameLog.length} partidos`);
+}
+
+const teamShotHtml = check('ShotChart (equipo)', () => renderToString(<ShotChart shots={equipo.shots} />));
+const circulosEquipo = (teamShotHtml.match(/<circle/g) || []).length;
+if (circulosEquipo !== equipo.shots.length + COURT_CIRCLES) {
+  problems.push(`ShotChart equipo: ${circulosEquipo} círculos, esperados ${equipo.shots.length + COURT_CIRCLES}`);
+}
+
+// Las fichas de equipo tienen que traer la misma forma que sirve la API.
+for (const clave of ['teamsStandings', 'teams']) {
+  if (!(clave in fixtures)) problems.push(`fixtures: falta "${clave}"`);
+}
+for (const clave of ['team', 'group', 'meta', 'standing', 'pace', 'gameLog', 'roster', 'shots']) {
+  if (!(clave in equipo)) problems.push(`fixtures.teams: falta "${clave}" en la ficha de ${primerEquipoKey}`);
 }
 
 // --- formateadores ----------------------------------------------------------
