@@ -228,7 +228,7 @@ export default function ComparePage({ slugs, context = {}, onSource }) {
   return (
     <>
       <div className="row" style={{ gap: 8, fontSize: '0.8125rem', marginBottom: 20 }}>
-        <a href={href.dashboard(context)} style={{ color: 'var(--muted)' }}>Dashboard</a>
+        <a href={href.ligas(context)} style={{ color: 'var(--muted)' }}>Ligas</a>
         <span style={{ color: 'var(--faint)' }}>/</span>
         <span style={{ color: 'var(--ink)' }}>Comparador</span>
       </div>

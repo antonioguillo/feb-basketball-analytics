@@ -2,17 +2,17 @@
    Los colores y radios vienen del index.html original; se añade --ink porque
    el CSS anterior usaba var(--white) sin definirla y los títulos quedaban en gris. */
 :root {
-  --bg: #0d1117;
-  --surface: #161b22;
-  --surface-2: #21262d;
-  --surface-hover: #1b2029;
-  --border: #30363d;
-  --border-soft: #21262d;
-  --accent: #e6e04c;
-  --accent-hover: #f2d049;
-  --ink: #e6edf3;
-  --muted: #8b949e;
-  --faint: #484f58;
+  --bg: #222831;
+  --surface: #262c36;
+  --surface-2: #31363f;
+  --surface-hover: #2b313b;
+  --border: #3d4450;
+  --border-soft: #2e343d;
+  --accent: #76abae;
+  --accent-hover: #8bbdc0;
+  --ink: #eeeeee;
+  --muted: #97a1ab;
+  --faint: #5c6672;
   --shot-miss: #6e7681;
 
   --radius: 8px;

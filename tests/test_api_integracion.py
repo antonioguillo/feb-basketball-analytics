@@ -199,6 +199,15 @@ class ApiIntegracionTest(unittest.TestCase):
             self.run_async(api.team(slug="equipo-que-no-existe", season=self.season))
         self.assertEqual(ctx.exception.status_code, 404)
 
+    def test_games_devuelve_al_menos_los_de_la_clasificacion(self):
+        t = self.run_async(api.teams(season=self.season, group=None))
+        equipo = t["standings"][0]
+        g = self.run_async(api.games(season=self.season, group=None))
+        partidos_del_lider = [
+            game for game in g["games"] if equipo["team"] in (game["home"], game["away"])
+        ]
+        self.assertGreaterEqual(len(partidos_del_lider), equipo["games"])
+
     # --- clutch / red de asistencias / faltas --------------------------------
 
     def test_el_clutch_se_ejecuta_y_va_ordenado(self):

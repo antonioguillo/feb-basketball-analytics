@@ -16,6 +16,8 @@
  *        -> { competitions[] } — qué hay cargado
  *   GET /api/dashboard?competition=&season=&group=&limit=&offset=
  *        -> { meta, summary, leaders[], leadersTotal, recentGames[] }
+ *   GET /api/games?competition=&season=&group=
+ *        -> { meta, games[] } — todos los partidos del filtro, sin paginar
  *   GET /api/players/<slug>?competition=&season=&group=
  *        -> perfil (meta, totals, perGame, shooting, per36, zones,
  *           bests, gameLog[], shots[])
@@ -97,6 +99,16 @@ export function getDashboard({ competition, season, group, limit, offset } = {})
     leadersTotal: fixtures.leadersTotal ?? fixtures.leaders.length,
     leadersOffset: offset ?? 0,
     recentGames: fixtures.recentGames,
+  }));
+}
+
+/** Todos los partidos del filtro, más recientes primero — sin paginar, el
+    frontend los agrupa por fecha para navegar jornada a jornada. */
+export function getGames({ competition, season, group } = {}) {
+  const suffix = queryString({ competition, season, group });
+  return withFallback(`/games${suffix}`, (fixtures) => ({
+    meta: fixtures.meta,
+    games: fixtures.recentGames,
   }));
 }
 

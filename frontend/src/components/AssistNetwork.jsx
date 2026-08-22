@@ -7,8 +7,8 @@ const RADIUS = 210;
 
 // Como el radar: todos los nodos en corro, el primero arriba y el resto en el
 // sentido del reloj. Con hasta ~18 jugadores (una plantilla completa) el
-// círculo sigue siendo legible; una red liga-completa se recorta antes de
-// llegar aquí (ver Assists.jsx).
+// círculo sigue siendo legible; el recorte a los pares con más asistencias
+// pasa antes de llegar aquí (ver Team.jsx:AsistenciasTab).
 function layout(nodes) {
   const n = nodes.length;
   return nodes.map((node, index) => {

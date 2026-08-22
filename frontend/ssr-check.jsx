@@ -6,16 +6,15 @@ import { renderToString } from 'react-dom/server';
 import fixtures from './src/api/fixtures.json';
 import ShotChart, { ShotLegend } from './src/components/ShotChart.jsx';
 import {
-  Panel, StatTile, Meter, LabelledBar, Select, Loading, ErrorState,
+  Panel, StatTile, Meter, LabelledBar, Select, ContextPicker, Pager, Tabs, Loading, ErrorState,
 } from './src/components/Primitives.jsx';
-import { ContextPicker, PageHead, LeaderRow, Pager, ResultRow, EmptyLeaders } from './src/pages/Dashboard.jsx';
+import { LeaderRow, ClutchRow, FoulRow, TeamFoulRow } from './src/pages/Jugadores.jsx';
+import { GameRow, agruparPorJornada } from './src/pages/Ligas.jsx';
 import { Identity, ShootingPanel, GameLog } from './src/pages/Player.jsx';
 import { CompareTable, SearchBox, filterCandidates, MAX_COMPARE } from './src/pages/Compare.jsx';
 import RadarChart, { RadarLegend, RADAR_AXES, percentileRank } from './src/components/RadarChart.jsx';
 import { StandingsRow } from './src/pages/Teams.jsx';
 import { Identity as TeamIdentity, Roster, PaceLog } from './src/pages/Team.jsx';
-import { ClutchRow } from './src/pages/Clutch.jsx';
-import { FoulRow } from './src/pages/Fouls.jsx';
 import AssistNetwork from './src/components/AssistNetwork.jsx';
 import { ZONE_ORDER, ZONE_LABEL, projectShot, VIEW_W, VIEW_H } from './src/lib/court.js';
 import { decimal, percent, signed, teamName, teamSlug, integer, barWidth } from './src/lib/format.js';
@@ -63,7 +62,7 @@ const selectHtml = check('Select', () => renderToString(
 if (!selectHtml.includes('<select')) problems.push('Select: no renderiza un <select> real');
 if (!selectHtml.includes('aria-label')) problems.push('Select: sin etiqueta accesible');
 
-// --- pantalla de dashboard --------------------------------------------------
+// --- jugadores / ligas -------------------------------------------------------
 
 const pickerHtml = check('ContextPicker', () => renderToString(
   <ContextPicker catalogo={fixtures.competitions} contexto={contexto} onChange={() => {}} />));
@@ -77,14 +76,10 @@ for (const entrada of fixtures.competitions) {
   }
 }
 
-check('PageHead', () => renderToString(
-  <PageHead meta={fixtures.meta} catalogo={fixtures.competitions}
-            contexto={contexto} onChange={() => {}} />));
-
 const rowHtml = check('LeaderRow', () => renderToString(
   <table><tbody>
     <LeaderRow player={leader} rank={1} max={leader.perGame.val}
-               onOpen={() => {}} context={contexto} />
+               onNavigate={() => {}} context={contexto} />
   </tbody></table>));
 // El enlace debe llevar el contexto: si no, la ficha se abriría en otra competición
 if (!rowHtml.includes(`competition=${contexto.competition}`)) {
@@ -109,14 +104,20 @@ if (!texto(ultimaPagina).includes('91-100 de 100')) {
   problems.push('Pager: última página mal calculada');
 }
 
-// Un grupo con pocos partidos no tiene a nadie sobre el mínimo: hay que decirlo
-const vacioHtml = check('EmptyLeaders', () => renderToString(<EmptyLeaders total={0} />));
-if (!texto(vacioHtml).includes('6 partidos')) {
-  problems.push('EmptyLeaders: no explica el umbral');
-}
+check('GameRow', () => renderToString(<GameRow game={fixtures.recentGames[0]} />));
 
-check('ResultRow', () => renderToString(
-  <ResultRow game={fixtures.recentGames[0]} last={false} />));
+// Agrupar por jornada: todos los partidos de recentGames tienen que quedar
+// repartidos sin perder ninguno, y cada grupo comparte fecha.
+const jornadas = agruparPorJornada(fixtures.recentGames);
+const totalAgrupado = jornadas.reduce((sum, j) => sum + j.partidos.length, 0);
+if (totalAgrupado !== fixtures.recentGames.length) {
+  problems.push(`agruparPorJornada: ${totalAgrupado} partidos agrupados, esperados ${fixtures.recentGames.length}`);
+}
+for (const jornada of jornadas) {
+  if (jornada.partidos.some((g) => g.date !== jornada.date)) {
+    problems.push(`agruparPorJornada: la jornada ${jornada.date} mezcla fechas distintas`);
+  }
+}
 
 // --- pantalla de ficha ------------------------------------------------------
 
@@ -331,6 +332,11 @@ if (!foulRowHtml.includes(`#/jugador/${fixtures.fouls.players[0].slug}`)) {
   problems.push('FoulRow: el enlace no apunta a la ficha');
 }
 if (!fixtures.fouls.teams.length) problems.push('fixtures.fouls: sin resumen por equipo');
+
+check('TeamFoulRow', () => renderToString(
+  <table><tbody>
+    <TeamFoulRow team={fixtures.fouls.teams[0]} context={contexto} />
+  </tbody></table>));
 
 // La red de una competición entera puede tener cientos de nodos; el
 // diagrama solo se usa recortado (ver Assists.jsx), pero tiene que

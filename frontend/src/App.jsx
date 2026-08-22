@@ -1,13 +1,11 @@
 import { useState, useCallback } from 'react';
 import Layout from './components/Layout.jsx';
-import Dashboard from './pages/Dashboard.jsx';
+import LigasPage from './pages/Ligas.jsx';
+import JugadoresPage from './pages/Jugadores.jsx';
 import PlayerPage from './pages/Player.jsx';
 import ComparePage from './pages/Compare.jsx';
 import TeamsPage from './pages/Teams.jsx';
 import TeamPage from './pages/Team.jsx';
-import ClutchPage from './pages/Clutch.jsx';
-import FoulsPage from './pages/Fouls.jsx';
-import AssistsPage from './pages/Assists.jsx';
 import { ErrorState } from './components/Primitives.jsx';
 import { useRoute, useNavigate, href } from './lib/router.js';
 
@@ -22,28 +20,34 @@ export default function App() {
     (slug, context) => navigate(href.team(slug, context).slice(1)), [navigate]);
   // Cambiar competición, temporada o grupo se refleja en la ruta, así que el
   // estado se puede compartir por enlace y sobrevive a recargar la página.
-  const cambiarContexto = useCallback(
-    (context) => navigate(href.dashboard(context).slice(1)), [navigate]);
+  const cambiarContextoLigas = useCallback(
+    (context) => navigate(href.ligas(context).slice(1)), [navigate]);
+  const cambiarContextoJugadores = useCallback(
+    (context) => navigate(href.players(context).slice(1)), [navigate]);
   const cambiarContextoEquipos = useCallback(
     (context) => navigate(href.teams(context).slice(1)), [navigate]);
-  const cambiarContextoClutch = useCallback(
-    (context) => navigate(href.clutch(context).slice(1)), [navigate]);
-  const cambiarContextoFaltas = useCallback(
-    (context) => navigate(href.fouls(context).slice(1)), [navigate]);
-  const cambiarAsistencias = useCallback(
-    (context, teamSlug) => navigate(href.assists(context, teamSlug).slice(1)), [navigate]);
   const handleSource = useCallback((value) => setSource(value), []);
 
   let page;
   let activeNav;
 
-  if (route.name === 'dashboard') {
-    activeNav = 'dashboard';
+  if (route.name === 'ligas') {
+    activeNav = 'ligas';
     page = (
-      <Dashboard
+      <LigasPage
+        context={route.context}
+        onNavigate={openTeam}
+        onContextChange={cambiarContextoLigas}
+        onSource={handleSource}
+      />
+    );
+  } else if (route.name === 'players') {
+    activeNav = 'players';
+    page = (
+      <JugadoresPage
         context={route.context}
         onNavigate={openPlayer}
-        onContextChange={cambiarContexto}
+        onContextChange={cambiarContextoJugadores}
         onSource={handleSource}
       />
     );
@@ -72,38 +76,6 @@ export default function App() {
     page = (
       <TeamPage slug={route.slug} context={route.context} onSource={handleSource} />
     );
-  } else if (route.name === 'clutch') {
-    activeNav = 'clutch';
-    page = (
-      <ClutchPage
-        context={route.context}
-        onNavigate={openPlayer}
-        onContextChange={cambiarContextoClutch}
-        onSource={handleSource}
-      />
-    );
-  } else if (route.name === 'fouls') {
-    activeNav = 'fouls';
-    page = (
-      <FoulsPage
-        context={route.context}
-        onNavigate={openPlayer}
-        onContextChange={cambiarContextoFaltas}
-        onSource={handleSource}
-      />
-    );
-  } else if (route.name === 'assists') {
-    activeNav = 'assists';
-    page = (
-      <AssistsPage
-        context={route.context}
-        team={route.team}
-        onNavigate={openPlayer}
-        onContextChange={cambiarAsistencias}
-        onTeamChange={cambiarAsistencias}
-        onSource={handleSource}
-      />
-    );
   } else {
     activeNav = null;
     page = (
@@ -111,7 +83,7 @@ export default function App() {
         title="Página no encontrada"
         detail={`La ruta ${route.path} no existe.`}
         onRetry={() => {
-          window.location.hash = href.dashboard().slice(1);
+          window.location.hash = href.ligas().slice(1);
         }}
       />
     );
