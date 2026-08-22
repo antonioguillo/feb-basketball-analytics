@@ -1,5 +1,11 @@
 # Documentación Técnica - FEB Basketball Big Data
 
+> Este documento cubre el **pipeline de datos** (scraper → MinIO → Spark →
+> ClickHouse) en profundidad: mecánica del scraping, detalle de cada capa
+> medallion, historial de bugs resueltos. Para la **API REST** (`api.py`) y el
+> **frontend** (React), que no se tratan aquí, ver el `README.md` —
+> secciones "API REST" y "Frontend".
+
 ## Arquitectura General
 
 Sistema Big Data completo para scrapeo, procesamiento y análisis de datos de baloncesto
@@ -30,7 +36,7 @@ Raw (MinIO)  →  Bronze (Delta en S3)  →  Silver (Delta en S3)  →  Gold (De
 Levantar toda la infraestructura:
 
 ```bash
-cd /home/anton/proyectos/feb-basketball-analytics
+cd feb-basketball-analytics   # tu ruta local del repo
 docker compose up -d --build
 ```
 
@@ -131,7 +137,9 @@ Job: `jobs/spark_bronze.py`. Lee las rutas particionadas de `s3a://raw/` y escri
 
 **Jobs bronze:**
 - `bronze_players` - stats de jugadores (28107 filas tras pipeline completo)
-- `bronze_playbyplay` - jugada a jugada (619208 filas)
+- `bronze_playbyplay` - jugada a jugada (619208 filas en la ejecución en que
+  se midió esta tabla; silver añade encima quién protagoniza cada jugada —
+  ver «Enriquecimiento del play-by-play» más abajo)
 - `bronze_shots` - coordenadas de tiros (176264 filas)
 - `bronze_teamstats` - stats de equipo (2648 filas)
 
@@ -187,7 +195,7 @@ Script: `jobs/load_clickhouse.py`. Lee parquet de staging y carga a tablas Click
 | Tabla | Filas | Columnas clave |
 |---|---|---|
 | `feb.jugadores` | 28107 | game_id, year, jersey, player_name, points |
-| `feb.playbyplay` | 619208 | game_id, year, quarter, time, text, action, scoreA, scoreB |
+| `feb.playbyplay` | 619208 (histórico; hoy son 773.686, sigue creciendo con el backfill) | game_id, year, quarter, time, text, action, scoreA, scoreB, **player_id, team_id, made, shot_value, foul_type, sub_direction, assisted_by_player_id, player_name, assisted_by_name** — ver detalle abajo |
 | `feb.tiros` | 176264 | game_id, year, quarter, made, x, y |
 | `feb.equipos_partido` | 2648 | game_id, team_id, team_name, points |
 | `feb.partidos` | 1325 | game_id, year, date, home_score, away_score, total_points, winner |
@@ -196,6 +204,33 @@ Script: `jobs/load_clickhouse.py`. Lee parquet de staging y carga a tablas Click
 ```bash
 ./run_pipeline.sh clickhouse
 ```
+
+### Enriquecimiento del play-by-play
+
+Añadido después de las cifras de arriba, en `jobs/spark_silver.py:clean_playbyplay()`.
+Sin él, `playbyplay` solo sirve para el marcador corriendo; con él, cada
+jugada dice qué jugador la protagoniza, si el tiro entró, qué tipo de falta
+fue y quién asistió — la base de los endpoints `/api/clutch`,
+`/api/assist-network` y `/api/fouls` (ver `README.md`, sección **API REST**).
+
+Dos decisiones no obvias, documentadas aquí porque cuestan tiempo si hay que
+redescubrirlas:
+
+1. **El nombre no se resuelve por id.** El `idPlayer` del acta de caja
+   (`bronze_players`) es la URL del **equipo**, no del jugador — bug del
+   origen (el scraper de la FEB), no de este pipeline. Sin un id compartido
+   entre el acta y el play-by-play, el nombre se resuelve por texto: se saca
+   «inicial. apellidos» de la propia jugada y se empareja contra
+   `silver/players` por partido + lado + apellidos normalizados. Resolución:
+   **99,2 %** de las jugadas con jugador — el resto se descarta a propósito
+   (apellido duplicado en el equipo sin forma de desempatar) antes que
+   arriesgar un nombre equivocado.
+2. **La asistencia mira hacia adelante, no hacia atrás.** El evento `assist`
+   no trae un campo que lo enlace con la canasta que reparte; se resuelve por
+   adyacencia (mismo equipo, mismo instante, la jugada *siguiente*) con una
+   window function ordenada por el orden cronológico real del partido — el
+   JSON crudo lista las jugadas del último suceso al primero, así que hay que
+   invertir el orden antes de razonar sobre «antes» y «después».
 
 ### 7. Pipeline Completo
 
@@ -265,6 +300,14 @@ python main.py grupo-e [--upload] [--force] [--delay S] [--seasons X,Y] [--max-j
 
 ### `src/models.py` - `EBA_GROUP_E`
 
+**Legado**: este diccionario de ids fijos es el mecanismo *original*, de
+cuando solo se cubría el Grupo E de Tercera FEB a mano. El comando
+`./run_pipeline.sh historico <comp>` (ver `README.md`) lo sustituye para
+cualquier competición nueva: descubre los grupos de cada temporada en la
+propia web (`get_groups`/`get_seasons`), sin ids codificados. `EBA_GROUP_E` se
+mantiene porque `grupo-e` (el comando original) todavía lo usa, no porque
+haga falta para ampliar cobertura.
+
 Diccionario mapeando años a IDs de grupo:
 
 ```python
@@ -298,7 +341,7 @@ Cada archivo subido a raw contiene metadatos del partido extraídos de la ficha 
 ### Ver estado de raw
 
 ```bash
-cd /home/anton/proyectos/feb-basketball-analytics
+cd feb-basketball-analytics   # tu ruta local del repo
 source venv/bin/activate
 python -c "
 import boto3
@@ -367,11 +410,31 @@ docker exec feb-clickhouse clickhouse-client --query "SELECT count() FROM feb.ju
 
 ---
 
-## Próximos Pasos Recomendados
+## Estado actual (resumen para orientarse rápido)
 
-1. **Documentación interna**: crear `AGENTS.md` con resumen para nuevos agentes que continúen el trabajo
-2. **Paralelismo de scraper**: añadir `asyncio` o `concurrent.futures` para reducir tiempo de ~50 min a ~15 min
-3. **Validación por subgrupo**: queries Ad-hoc en ClickHouse por `SELECT group, year, count() FROM feb.partidos GROUP BY group, year`
-4. **API interna FEB**: explorar endpoints `intrafeb.feb.es` para reducir dependencia del scrapping web paginado
-5. **Ampliación de temporadas**: el patrón actual soporta cualquier año en `EBA_GROUP_E` - añadir 2026/2027 cuando la temporada termine
-6. **Tests unitarios**: validar que `get_game_links_by_group` devuelve esperado número de links por grupo/año
+Ya resueltos, respecto a la lista de pendientes que había aquí antes:
+descarga paralela (`--workers`), la API interna de FEB (`intrafeb.feb.es`) es
+la fuente del play-by-play/tiros/stats de equipo desde 2020, y el histórico
+se descubre solo con `historico` (sin ids codificados por competición). Ver
+`README.md` → **Cobertura del histórico** para el estado exacto.
+
+Lo que hay montado hoy, de punta a punta:
+
+1. **Pipeline**: scraper → raw (MinIO) → bronze/silver/gold (Delta) →
+   ClickHouse. Incremental por competición/temporada, con backfill histórico
+   y actualización semanal pensada para cron.
+2. **API REST** (`api.py`, FastAPI): fichas de jugador/equipo, clasificación,
+   resultados por jornada, y tres cortes sobre el play-by-play enriquecido —
+   clutch, red de asistencias, disciplina de faltas. Detalle en `README.md`.
+3. **Frontend** (`frontend/`, React + Vite): cuatro secciones (Ligas,
+   Jugadores, Equipos, Comparar), con las tres vistas del punto 2 plegadas
+   como pestañas dentro de Jugadores/Equipo en vez de pantallas propias.
+   Detalle en `README.md`.
+
+Lo que falta y quedó explícitamente fuera de esta ronda: **mejores
+quintetos** — combinar `sub_direction` (entradas/salidas de `subst`) con el
+resto de jugadas para reconstruir qué cinco jugadores estaban en pista en
+cada momento y sacar de ahí el net rating por quinteto. Es la pieza con más
+trabajo de SQL de las cuatro que se plantearon (parecido al truco del
+marcador acumulado de `/api/clutch`, pero llevando la cuenta de quién está
+dentro en cada instante).
