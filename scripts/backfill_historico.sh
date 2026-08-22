@@ -58,7 +58,7 @@ case "$MODO" in
         ;;
 esac
 
-if ! curl -sf -o /dev/null --max-time 3 "http://localhost:9000/minio/health/live"; then
+if ! curl -sf --max-time 10 "http://localhost:9000/minio/health/live" > /dev/null; then
     log "ERROR: MinIO no responde en localhost:9000. Ejecuta primero:  ./run_pipeline.sh up"
     exit 1
 fi
