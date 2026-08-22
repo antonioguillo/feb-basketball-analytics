@@ -9,6 +9,9 @@ const NAV = [
   { key: 'players', label: 'Jugadores', to: null },
   { key: 'compare', label: 'Comparar', to: href.compare() },
   { key: 'teams', label: 'Equipos', to: href.teams() },
+  { key: 'clutch', label: 'Clutch', to: href.clutch() },
+  { key: 'assists', label: 'Asistencias', to: href.assists() },
+  { key: 'fouls', label: 'Faltas', to: href.fouls() },
   { key: 'games', label: 'Partidos', to: null },
 ];
 

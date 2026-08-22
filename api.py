@@ -5,6 +5,11 @@ Sirve lo que consume el frontend leyendo de ClickHouse:
     GET /api/competitions                          qué hay cargado
     GET /api/dashboard?competition=&season=&group=&limit=&offset=
     GET /api/players/{slug}?competition=&season=&group=
+    GET /api/teams?competition=&season=&group=
+    GET /api/teams/{slug}?competition=&season=&group=
+    GET /api/clutch?competition=&season=&group=&limit=&offset=
+    GET /api/assist-network?competition=&season=&group=&team=
+    GET /api/fouls?competition=&season=&group=&limit=&offset=
 
 Toda respuesta habla de UNA competición: mezclar en un mismo ranking la Tercera
 FEB masculina con la LF Endesa no significa nada. Si no se pide ninguna se elige
@@ -60,6 +65,17 @@ LEADERS_MAX = 500
 # Cuánto se guarda el índice de slugs. Las tablas solo cambian cuando se
 # recarga el pipeline, así que un cuarto de hora es conservador.
 SLUG_CACHE_TTL = float(os.getenv("SLUG_CACHE_TTL", "900"))
+
+# "Clutch": últimos 5 minutos del último cuarto (o cualquier prórroga) con el
+# marcador a 5 puntos o menos en ese instante — la definición habitual de
+# tiempo/marcador ajustado, no solo el resultado final del partido.
+CLUTCH_SECONDS = 300
+CLUTCH_MARGIN = 5
+MIN_CLUTCH_GAMES = 2
+
+# Un jugador queda eliminado por faltas a las 5 personales (reglas FIBA).
+FOUL_OUT_THRESHOLD = 5
+MIN_FOUL_GAMES = 3
 
 
 def _filtro(competition: Optional[str], season: Optional[str], group: Optional[str],
@@ -855,6 +871,343 @@ async def team(
         "gameLog": pace_log,
         "roster": roster,
         "shots": shots,
+    }
+
+
+# --- clutch --------------------------------------------------------------
+# `feb.playbyplay` solo trae el marcador (scoreA/scoreB) en las jugadas que
+# anotan; el resto lo deja a 0. Como el marcador nunca baja, el máximo
+# acumulado hasta cada jugada (ventana ORDER BY tiempo real de partido) es el
+# marcador vigente en ese instante — evita tener que rellenar a mano.
+_CLUTCH_SCORED_CTE = """
+    WITH scored AS (
+        SELECT
+            pbp.game_id AS game_id,
+            pbp.quarter AS quarter,
+            pbp.action AS action,
+            pbp.made AS made,
+            pbp.shot_value AS shot_value,
+            pbp.player_name AS player_name,
+            if(pbp.team = 1, p.home_team, p.away_team) AS team,
+            (toUInt32OrZero(splitByChar(':', pbp.time)[1]) * 60
+             + toUInt32OrZero(splitByChar(':', pbp.time)[2])) AS secs_left,
+            max(pbp.scoreA) OVER (
+                PARTITION BY pbp.game_id
+                ORDER BY pbp.quarter,
+                    600 - (toUInt32OrZero(splitByChar(':', pbp.time)[1]) * 60
+                           + toUInt32OrZero(splitByChar(':', pbp.time)[2]))
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS score_home,
+            max(pbp.scoreB) OVER (
+                PARTITION BY pbp.game_id
+                ORDER BY pbp.quarter,
+                    600 - (toUInt32OrZero(splitByChar(':', pbp.time)[1]) * 60
+                           + toUInt32OrZero(splitByChar(':', pbp.time)[2]))
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS score_away
+        FROM feb.playbyplay AS pbp
+        INNER JOIN feb.partidos AS p ON p.game_id = pbp.game_id
+        WHERE {where_p}
+    ),
+    clutch AS (
+        SELECT * FROM scored
+        WHERE player_name IS NOT NULL
+          AND (quarter > 4 OR (quarter = 4 AND secs_left <= {{secs:UInt16}}))
+          AND abs(score_home - score_away) <= {{margin:UInt8}}
+    )
+"""
+
+_CLUTCH_AGG = """
+    SELECT
+        player_name,
+        argMax(team, game_id) AS team,
+        uniqExact(game_id) AS games,
+        countIf(action = 'shoot') AS fga,
+        countIf(action = 'shoot' AND made = 1) AS fgm,
+        countIf(action = 'shoot' AND shot_value = 3) AS fg3a,
+        countIf(action = 'shoot' AND shot_value = 3 AND made = 1) AS fg3m,
+        countIf(action = 'fthrow') AS fta,
+        countIf(action = 'fthrow' AND made = 1) AS ftm,
+        sum(if(action = 'shoot' AND made = 1, shot_value, 0))
+            + countIf(action = 'fthrow' AND made = 1) AS points,
+        countIf(action = 'assist') AS ast,
+        countIf(action = 'lose') AS tov,
+        countIf(action = 'recovery') AS stl,
+        countIf(action = 'blockshot') AS blk,
+        countIf(action = 'foul') AS fouls
+    FROM clutch
+    GROUP BY player_name
+    HAVING games >= {min_games:UInt8}
+"""
+
+
+def _clutch_entry(row: Dict[str, Any]) -> Dict[str, Any]:
+    fgm, fga = _num(row["fgm"], int), _num(row["fga"], int)
+    fg3m, fg3a = _num(row["fg3m"], int), _num(row["fg3a"], int)
+    ftm, fta = _num(row["ftm"], int), _num(row["fta"], int)
+    return {
+        "slug": player_slug(row["player_name"]),
+        "name": display_name(row["player_name"]),
+        "team": row["team"],
+        "games": _num(row["games"], int),
+        "points": _num(row["points"], int),
+        "ast": _num(row["ast"], int),
+        "tov": _num(row["tov"], int),
+        "stl": _num(row["stl"], int),
+        "blk": _num(row["blk"], int),
+        "fouls": _num(row["fouls"], int),
+        "shooting": {
+            "fgm": fgm, "fga": fga, "fg": _ratio(fgm, fga),
+            "fg3m": fg3m, "fg3a": fg3a, "fg3": _ratio(fg3m, fg3a),
+            "ftm": ftm, "fta": fta, "ft": _ratio(ftm, fta),
+        },
+    }
+
+
+@app.get("/api/clutch", tags=["playbyplay"])
+async def clutch(
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+    limit: Annotated[int, Query(ge=1, le=LEADERS_MAX)] = LEADERS_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Ranking en momentos ajustados: últimos 5' del último cuarto o prórroga
+    con el marcador a 5 puntos o menos en ese instante del partido."""
+    limit = max(1, min(int(limit), LEADERS_MAX))
+    offset = max(0, int(offset))
+
+    ctx = await _contexto(competition, season, group)
+    where_p, params_p = _filtro(competition, season, group, alias="p")
+    params = {**params_p, "secs": CLUTCH_SECONDS, "margin": CLUTCH_MARGIN,
+              "min_games": MIN_CLUTCH_GAMES}
+
+    cte = _CLUTCH_SCORED_CTE.format(where_p=where_p)
+
+    total = await ch_one(
+        f"SELECT count() AS n FROM ({cte} SELECT player_name FROM clutch "
+        f"GROUP BY player_name HAVING uniqExact(game_id) >= {{min_games:UInt8}})",
+        params,
+    )
+    filas = await ch_query(
+        f"{cte} {_CLUTCH_AGG} ORDER BY points DESC LIMIT {{limit:UInt16}} OFFSET {{offset:UInt32}}",
+        {**params, "limit": limit, "offset": offset},
+    )
+
+    return {
+        "meta": ctx["meta"],
+        "definition": {"lastSeconds": CLUTCH_SECONDS, "marginPoints": CLUTCH_MARGIN,
+                       "minGames": MIN_CLUTCH_GAMES},
+        "players": [_clutch_entry(f) for f in filas],
+        "playersTotal": _num(total.get("n"), int),
+        "playersOffset": offset,
+    }
+
+
+# --- red de asistencias ----------------------------------------------------
+
+@app.get("/api/assist-network", tags=["playbyplay"])
+async def assist_network(
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+    team: Annotated[Optional[str], Query(description="Slug de equipo; sin él, top de la competición")] = None,
+):
+    """Quién asiste a quién: pares (pasador, anotador) con nº de asistencias y
+    puntos generados. Los tiros libres no llevan asistencia, así que solo
+    cuentan los tiros de campo anotados."""
+    ctx = await _contexto(competition, season, group)
+    competition, season, group = ctx["competition"], ctx["season"], ctx["group"]
+
+    name = None
+    if team:
+        name = await _resolve_team(team, competition, season, group)
+
+    where_p, params_p = _filtro(competition, season, group, alias="p")
+    condicion_equipo = ""
+    params = {**params_p}
+    if name:
+        condicion_equipo = " AND if(pbp.team = 1, p.home_team, p.away_team) = {team:String}"
+        params["team"] = name
+
+    filas = await ch_query(
+        f"""
+        SELECT
+            pbp.assisted_by_name AS passer,
+            pbp.player_name AS scorer,
+            if(pbp.team = 1, p.home_team, p.away_team) AS team,
+            count() AS assists,
+            sum(pbp.shot_value) AS points
+        FROM feb.playbyplay AS pbp
+        INNER JOIN feb.partidos AS p ON p.game_id = pbp.game_id
+        WHERE {where_p} AND pbp.action = 'shoot' AND pbp.made = 1
+              AND pbp.assisted_by_name IS NOT NULL AND pbp.player_name IS NOT NULL
+              {condicion_equipo}
+        GROUP BY passer, scorer, team
+        ORDER BY assists DESC
+        LIMIT 300
+        """,
+        params,
+    )
+
+    edges = []
+    nodes: Dict[str, Dict[str, Any]] = {}
+
+    def _node(raw_name: str, node_team: str) -> Dict[str, Any]:
+        return nodes.setdefault(raw_name, {
+            "slug": player_slug(raw_name), "name": display_name(raw_name),
+            "team": node_team, "assistsGiven": 0, "assistsReceived": 0, "pointsCreated": 0,
+        })
+
+    for row in filas:
+        assists = _num(row["assists"], int) or 0
+        # `shot_value` no debería faltar en un tiro anotado, pero un acta rara
+        # puede traerlo sin rellenar; mejor 0 puntos que tumbar la respuesta.
+        points = _num(row["points"], int) or 0
+        passer, scorer, row_team = row["passer"], row["scorer"], row["team"]
+        edges.append({
+            "passer": display_name(passer), "passerSlug": player_slug(passer),
+            "scorer": display_name(scorer), "scorerSlug": player_slug(scorer),
+            "team": row_team, "assists": assists, "points": points,
+        })
+        _node(passer, row_team)["assistsGiven"] += assists
+        _node(scorer, row_team)["pointsCreated"] += points
+        _node(scorer, row_team)["assistsReceived"] += assists
+
+    nodes_out = sorted(nodes.values(), key=lambda n: n["assistsGiven"] + n["assistsReceived"], reverse=True)
+
+    return {
+        "meta": ctx["meta"],
+        "team": name,
+        "teamKey": team_slug(name) if name else None,
+        "nodes": nodes_out,
+        "edges": edges,
+    }
+
+
+# --- disciplina de faltas ----------------------------------------------------
+
+def _foul_bucket() -> Dict[str, int]:
+    return {"personal": 0, "tecnica": 0, "descalificante": 0, "gamesWithFoul": 0, "fouledOutGames": 0}
+
+
+@app.get("/api/fouls", tags=["playbyplay"])
+async def fouls(
+    competition: Annotated[Optional[str], Query(description="Clave de competición")] = None,
+    season: Annotated[Optional[str], Query(description="Año de inicio de temporada")] = None,
+    group: Annotated[Optional[str], Query(description="Clave de grupo")] = None,
+    limit: Annotated[int, Query(ge=1, le=LEADERS_MAX)] = LEADERS_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    """Disciplina: faltas por tipo (personal/técnica/descalificante), por
+    jugador y por equipo, más partidos eliminado por 5 personales."""
+    limit = max(1, min(int(limit), LEADERS_MAX))
+    offset = max(0, int(offset))
+
+    ctx = await _contexto(competition, season, group)
+    where, params = ctx["where"], ctx["params"]
+    where_p, params_p = _filtro(competition, season, group, alias="p")
+
+    # Partidos jugados y equipo, tal y como los cuenta el acta de caja: la
+    # única fuente fiable de "partidos jugados" (el play-by-play solo sabe de
+    # partidos en los que hubo alguna falta).
+    filas_base = await ch_query(
+        f"""
+        SELECT player_name, argMax(team, game_date) AS team,
+               argMax(`group`, game_date) AS grupo, count() AS games
+        FROM feb.jugadores WHERE {where}
+        GROUP BY player_name
+        """,
+        params,
+    )
+    base = {f["player_name"]: f for f in filas_base}
+
+    filas_pbp = await ch_query(
+        f"""
+        SELECT pbp.player_name AS player_name, pbp.game_id AS game_id,
+               countIf(pbp.foul_type = 'personal') AS personal_g,
+               countIf(pbp.foul_type = 'tecnica') AS tecnica_g,
+               countIf(pbp.foul_type = 'descalificante') AS descalificante_g
+        FROM feb.playbyplay AS pbp
+        INNER JOIN feb.partidos AS p ON p.game_id = pbp.game_id
+        WHERE {where_p} AND pbp.action = 'foul' AND pbp.player_name IS NOT NULL
+        GROUP BY player_name, game_id
+        """,
+        params_p,
+    )
+
+    por_jugador: Dict[str, Dict[str, int]] = {}
+    por_equipo: Dict[str, Dict[str, int]] = {}
+    for row in filas_pbp:
+        name = row["player_name"]
+        personal = _num(row["personal_g"], int) or 0
+        tecnica = _num(row["tecnica_g"], int) or 0
+        descalificante = _num(row["descalificante_g"], int) or 0
+
+        bucket = por_jugador.setdefault(name, _foul_bucket())
+        bucket["personal"] += personal
+        bucket["tecnica"] += tecnica
+        bucket["descalificante"] += descalificante
+        bucket["gamesWithFoul"] += 1
+        if personal >= FOUL_OUT_THRESHOLD:
+            bucket["fouledOutGames"] += 1
+
+        info = base.get(name)
+        if info:
+            equipo = por_equipo.setdefault(info["team"], _foul_bucket())
+            equipo["personal"] += personal
+            equipo["tecnica"] += tecnica
+            equipo["descalificante"] += descalificante
+
+    players = []
+    for name, stats in por_jugador.items():
+        info = base.get(name)
+        if info is None:
+            continue    # falta en un partido fuera del filtro actual (no debería pasar)
+        games = _num(info["games"], int)
+        if games < MIN_FOUL_GAMES:
+            continue
+        total = stats["personal"] + stats["tecnica"] + stats["descalificante"]
+        players.append({
+            "slug": player_slug(name), "name": display_name(name),
+            "team": info["team"], "group": info.get("grupo"),
+            "games": games,
+            "personalFouls": stats["personal"],
+            "technicalFouls": stats["tecnica"],
+            "disqualifyingFouls": stats["descalificante"],
+            "totalFouls": total,
+            "foulsPerGame": round(total / games, 2) if games else None,
+            "fouledOutGames": stats["fouledOutGames"],
+        })
+    players.sort(key=lambda p: p["totalFouls"], reverse=True)
+    players_total = len(players)
+    players_page = players[offset:offset + limit]
+
+    standings = await _standings(where, params)
+    games_by_team = {row["team"]: row["games"] for row in standings}
+    teams = []
+    for team_name_raw, stats in por_equipo.items():
+        games = games_by_team.get(team_name_raw)
+        if not games or games < MIN_FOUL_GAMES:
+            continue    # equipo con solo un par de partidos en el filtro (p.ej. fase final en curso)
+        total = stats["personal"] + stats["tecnica"] + stats["descalificante"]
+        teams.append({
+            "team": team_name_raw, "teamKey": team_slug(team_name_raw), "games": games,
+            "personalFouls": stats["personal"],
+            "technicalFouls": stats["tecnica"],
+            "disqualifyingFouls": stats["descalificante"],
+            "totalFouls": total,
+            "foulsPerGame": round(total / games, 2) if games else None,
+        })
+    teams.sort(key=lambda t: t["foulsPerGame"] or 0, reverse=True)
+
+    return {
+        "meta": ctx["meta"],
+        "foulOutThreshold": FOUL_OUT_THRESHOLD,
+        "players": players_page,
+        "playersTotal": players_total,
+        "playersOffset": offset,
+        "teams": teams,
     }
 
 

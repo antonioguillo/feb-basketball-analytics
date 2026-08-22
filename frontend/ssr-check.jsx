@@ -14,6 +14,9 @@ import { CompareTable, SearchBox, filterCandidates, MAX_COMPARE } from './src/pa
 import RadarChart, { RadarLegend, RADAR_AXES, percentileRank } from './src/components/RadarChart.jsx';
 import { StandingsRow } from './src/pages/Teams.jsx';
 import { Identity as TeamIdentity, Roster, PaceLog } from './src/pages/Team.jsx';
+import { ClutchRow } from './src/pages/Clutch.jsx';
+import { FoulRow } from './src/pages/Fouls.jsx';
+import AssistNetwork from './src/components/AssistNetwork.jsx';
 import { ZONE_ORDER, ZONE_LABEL, projectShot, VIEW_W, VIEW_H } from './src/lib/court.js';
 import { decimal, percent, signed, teamName, teamSlug, integer, barWidth } from './src/lib/format.js';
 
@@ -305,6 +308,47 @@ for (const clave of ['teamsStandings', 'teams']) {
 for (const clave of ['team', 'group', 'meta', 'standing', 'pace', 'gameLog', 'roster', 'shots']) {
   if (!(clave in equipo)) problems.push(`fixtures.teams: falta "${clave}" en la ficha de ${primerEquipoKey}`);
 }
+
+// --- clutch / faltas / red de asistencias ------------------------------------
+
+for (const clave of ['clutch', 'fouls', 'assistNetwork', 'assistNetworkByTeam']) {
+  if (!(clave in fixtures)) problems.push(`fixtures: falta "${clave}"`);
+}
+
+const clutchRowHtml = check('ClutchRow', () => renderToString(
+  <table><tbody>
+    <ClutchRow player={fixtures.clutch.players[0]} rank={1} onNavigate={() => {}} context={contexto} />
+  </tbody></table>));
+if (!clutchRowHtml.includes(`#/jugador/${fixtures.clutch.players[0].slug}`)) {
+  problems.push('ClutchRow: el enlace no apunta a la ficha');
+}
+
+const foulRowHtml = check('FoulRow', () => renderToString(
+  <table><tbody>
+    <FoulRow player={fixtures.fouls.players[0]} rank={1} onNavigate={() => {}} context={contexto} />
+  </tbody></table>));
+if (!foulRowHtml.includes(`#/jugador/${fixtures.fouls.players[0].slug}`)) {
+  problems.push('FoulRow: el enlace no apunta a la ficha');
+}
+if (!fixtures.fouls.teams.length) problems.push('fixtures.fouls: sin resumen por equipo');
+
+// La red de una competición entera puede tener cientos de nodos; el
+// diagrama solo se usa recortado (ver Assists.jsx), pero tiene que
+// aguantar tanto un puñado de nodos (equipo) como una lista más larga.
+const primerEquipoAsistencias = Object.values(fixtures.assistNetworkByTeam)[0];
+if (!primerEquipoAsistencias) problems.push('fixtures.assistNetworkByTeam: vacío');
+if (primerEquipoAsistencias) {
+  const networkHtml = check('AssistNetwork', () => renderToString(
+    <AssistNetwork nodes={primerEquipoAsistencias.nodes} edges={primerEquipoAsistencias.edges} />));
+  const nodosDibujados = (networkHtml.match(/<circle/g) || []).length;
+  if (nodosDibujados !== primerEquipoAsistencias.nodes.length) {
+    problems.push(`AssistNetwork: ${nodosDibujados} nodos dibujados, esperados ${primerEquipoAsistencias.nodes.length}`);
+  }
+  for (const edge of primerEquipoAsistencias.edges) {
+    if (edge.passerSlug === edge.scorerSlug) problems.push('AssistNetwork: un jugador no puede asistirse a sí mismo');
+  }
+}
+check('AssistNetwork (vacío)', () => renderToString(<AssistNetwork nodes={[]} edges={[]} />));
 
 // --- formateadores ----------------------------------------------------------
 

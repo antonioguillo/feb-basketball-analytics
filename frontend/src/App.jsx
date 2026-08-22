@@ -5,6 +5,9 @@ import PlayerPage from './pages/Player.jsx';
 import ComparePage from './pages/Compare.jsx';
 import TeamsPage from './pages/Teams.jsx';
 import TeamPage from './pages/Team.jsx';
+import ClutchPage from './pages/Clutch.jsx';
+import FoulsPage from './pages/Fouls.jsx';
+import AssistsPage from './pages/Assists.jsx';
 import { ErrorState } from './components/Primitives.jsx';
 import { useRoute, useNavigate, href } from './lib/router.js';
 
@@ -23,6 +26,12 @@ export default function App() {
     (context) => navigate(href.dashboard(context).slice(1)), [navigate]);
   const cambiarContextoEquipos = useCallback(
     (context) => navigate(href.teams(context).slice(1)), [navigate]);
+  const cambiarContextoClutch = useCallback(
+    (context) => navigate(href.clutch(context).slice(1)), [navigate]);
+  const cambiarContextoFaltas = useCallback(
+    (context) => navigate(href.fouls(context).slice(1)), [navigate]);
+  const cambiarAsistencias = useCallback(
+    (context, teamSlug) => navigate(href.assists(context, teamSlug).slice(1)), [navigate]);
   const handleSource = useCallback((value) => setSource(value), []);
 
   let page;
@@ -62,6 +71,38 @@ export default function App() {
     activeNav = 'teams';
     page = (
       <TeamPage slug={route.slug} context={route.context} onSource={handleSource} />
+    );
+  } else if (route.name === 'clutch') {
+    activeNav = 'clutch';
+    page = (
+      <ClutchPage
+        context={route.context}
+        onNavigate={openPlayer}
+        onContextChange={cambiarContextoClutch}
+        onSource={handleSource}
+      />
+    );
+  } else if (route.name === 'fouls') {
+    activeNav = 'fouls';
+    page = (
+      <FoulsPage
+        context={route.context}
+        onNavigate={openPlayer}
+        onContextChange={cambiarContextoFaltas}
+        onSource={handleSource}
+      />
+    );
+  } else if (route.name === 'assists') {
+    activeNav = 'assists';
+    page = (
+      <AssistsPage
+        context={route.context}
+        team={route.team}
+        onNavigate={openPlayer}
+        onContextChange={cambiarAsistencias}
+        onTeamChange={cambiarAsistencias}
+        onSource={handleSource}
+      />
     );
   } else {
     activeNav = null;
