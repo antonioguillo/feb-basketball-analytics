@@ -69,7 +69,7 @@ class FakeScraper:
 
 
 class FakeStore:
-    """RawStore en memoria, con la misma interfaz que usa main.py."""
+    """RawStore en memoria, con la misma interfaz que usa scraping/jobs.py."""
 
     instances = []
 
@@ -89,12 +89,12 @@ class FakeStore:
 class UpdateFlowTest(unittest.TestCase):
     def setUp(self):
         FakeStore.instances = []
-        self._scraper, self._store = main.FEBBasketballScraper, src.raw_store.RawStore
-        main.FEBBasketballScraper = FakeScraper
+        self._scraper, self._store = main.jobs.FEBBasketballScraper, src.raw_store.RawStore
+        main.jobs.FEBBasketballScraper = FakeScraper
         src.raw_store.RawStore = FakeStore
 
     def tearDown(self):
-        main.FEBBasketballScraper = self._scraper
+        main.jobs.FEBBasketballScraper = self._scraper
         src.raw_store.RawStore = self._store
 
     def test_no_guarda_partidos_sin_jugar(self):

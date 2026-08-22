@@ -244,7 +244,7 @@ Detalle de implementación (scraper.py línea ~120):
 - Agrupa por temporada y subgrupo (E-A, E-B)
 - Devuelve dict `{season: {group_id: [list_of_game_links]}}`
 
-### `main.py` - Comandos CLI
+### `main.py` (CLI) + `scraping/jobs.py` (lógica) - Comandos
 
 **Comandos disponibles:**
 ```

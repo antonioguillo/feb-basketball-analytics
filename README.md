@@ -338,7 +338,15 @@ feb-basketball-analytics/
 │   └── docker-wrapper.sh     # Wrapper docker.exe para WSL
 ├── docker-compose.yml        # MinIO + Spark + ClickHouse
 ├── run_pipeline.sh           # Orquestador de todo el flujo
-├── main.py                   # CLI de scraping
+├── main.py                   # CLI de scraping (parsea argumentos y despacha)
+├── scraping/
+│   └── jobs.py                # Lógica de scraping: partido/liga/histórico/actualizar
+├── api/
+│   ├── app.py                # FastAPI: endpoints
+│   ├── clickhouse.py         # Cliente HTTP y helpers de consulta
+│   ├── context.py            # Resolución de competición/temporada/grupo
+│   ├── slugs.py               # Índices slug -> nombre (jugadores/equipos)
+│   └── stats.py               # Fórmulas de estadísticas y ranking
 ├── tests/
 │   └── test_scraper_parsing.py  # Tests sin red del recorrido de jornadas
 └── data/processed/           # Parquets locales (cache de scraping)
@@ -441,7 +449,7 @@ del contenedor y responde a cualquier petición del host con un
 CH_USER=default CH_PASSWORD=feb        # valores por defecto, cambiables por entorno
 ```
 
-## API REST (`api.py`)
+## API REST (`api/`)
 
 ```bash
 ./run_pipeline.sh api          # o: uvicorn api:app --reload --port 8000

@@ -1,7 +1,8 @@
 """Comprueba que la API devuelve exactamente la forma que consume el frontend.
 
-No hace falta ClickHouse: se sustituye `api.ch_query` por filas equivalentes a
-las que devolvería, y se compara la respuesta con `frontend/src/api/fixtures.json`,
+No hace falta ClickHouse: se sustituye `api.clickhouse.ch_query` por filas
+equivalentes a las que devolvería, y se compara la respuesta con
+`frontend/src/api/fixtures.json`,
 que es la referencia del contrato. Así un cambio en el SQL que rompa una clave
 del frontend falla aquí y no en el navegador.
 
@@ -137,12 +138,12 @@ class FakeClickHouse:
 class ApiContractTest(unittest.TestCase):
     def setUp(self):
         self.fake = FakeClickHouse()
-        self._real = api.ch_query
-        api.ch_query = self.fake
+        self._real = api.clickhouse.ch_query
+        api.clickhouse.ch_query = self.fake
         api.invalidar_indice_slugs()   # el índice es estado global entre tests
 
     def tearDown(self):
-        api.ch_query = self._real
+        api.clickhouse.ch_query = self._real
 
     def run_async(self, coro):
         return asyncio.run(coro)

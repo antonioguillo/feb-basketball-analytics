@@ -9,10 +9,6 @@ dist/
 build/
 *.egg
 
-# Streamlit/Streamlit specific
-.streamlit/
-.toml
-
 # Jupyter
 .ipynb_checkpoints/
 
